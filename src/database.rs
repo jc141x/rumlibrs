@@ -2,9 +2,9 @@ use crate::util::ChadError;
 use postgrest::Postgrest;
 use serde::{Deserialize, Serialize};
 
-const API_KEY: &'static str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlhdCI6MTYyNzY0NDc0OCwiZXhwIjoxOTQzMjIwNzQ4fQ.MheXAiuWYFGDuFhfzAnANMzJU2UU4HN2dxwMxGdQd5A";
+pub const API_KEY: &'static str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlhdCI6MTYyNzY0NDc0OCwiZXhwIjoxOTQzMjIwNzQ4fQ.MheXAiuWYFGDuFhfzAnANMzJU2UU4HN2dxwMxGdQd5A";
 
-const TRACKERS: &[&'static str] = &[
+pub const TRACKERS: &[&'static str] = &[
     "udp://tracker.leechers-paradise.org:6969/announce",
     "udp://tracker.opentrackr.org:1337/announce",
     "udp://tracker.zer0day.to:1337/announce",
@@ -25,34 +25,69 @@ const TRACKERS: &[&'static str] = &[
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Game {
-    id: usize,
-    leetx_id: usize,
-    name: String,
-    version: String,
+    /// Unique identifier, primary key in the database
+    pub id: usize,
+    /// Id of the torrent on 1337x
+    pub leetx_id: usize,
+    /// Name of the game
+    pub name: String,
+    /// Version of the game
+    pub version: String,
+    /// Type: Wine or Native
     #[serde(rename = "type")]
-    type_: String,
-    hash: String,
-    description: String,
-    nsfw: bool,
-    banner_path: Option<String>,
-    genres: Vec<String>,
-    tags: Vec<String>,
-    languages: Vec<String>,
+    pub type_: String,
+    /// Infohash of the torrent
+    pub hash: String,
+    /// Description of the game
+    pub description: String,
+    /// Whether the game is meant for a mature audience
+    pub nsfw: bool,
+    /// Relative path to the banner. Banners can be downloaded from here: `https://gitlab.com/chad-productions/chad_launcher_banners/-/raw/master/<banner_path>`
+    pub banner_path: Option<String>,
+    /// List of genres
+    pub genres: Vec<String>,
+    /// List of tags
+    pub tags: Vec<String>,
+    /// List of languages
+    pub languages: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GetGamesOpts {
-    page_number: usize,
-    page_size: usize,
+    /// Page number starting from 0
+    pub page_number: usize,
+    /// Amount of games on each page
+    pub page_size: usize,
 
+    /// Language filter
     #[serde(skip_serializing_if = "Option::is_none")]
-    filter_language: Option<String>,
+    pub filter_language: Option<String>,
+    /// Tag filter
     #[serde(skip_serializing_if = "Option::is_none")]
-    filter_tag: Option<String>,
+    pub filter_tag: Option<String>,
+    /// Genre filter
     #[serde(skip_serializing_if = "Option::is_none")]
-    filter_genre: Option<String>,
+    pub filter_genre: Option<String>,
+    /// A search query
     #[serde(skip_serializing_if = "Option::is_none")]
-    search: Option<String>,
+    pub search: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ItemTable {
+    Genres,
+    Tags,
+    Languages,
+}
+
+impl Into<&str> for ItemTable {
+    fn into(self) -> &'static str {
+        match self {
+            Self::Genres => "genres",
+            Self::Tags => "tags",
+            Self::Languages => "languages",
+        }
+    }
 }
 
 pub struct DatabaseFetcher {
@@ -67,6 +102,7 @@ impl DatabaseFetcher {
         }
     }
 
+    /// Get a list of games from the database
     pub async fn get_games(&self, opts: &GetGamesOpts) -> Result<Vec<Game>, ChadError> {
         let result = self
             .client
@@ -79,10 +115,16 @@ impl DatabaseFetcher {
         Ok(result)
     }
 
-    pub async fn get_items(&self, table_name: &str) -> Result<Vec<String>, ChadError> {
+    /// Gets a list of items from the given table name. For available table names, see
+    /// [ItemTable](ItemTable).
+    ///
+    /// ```rust
+    /// let genres = database.get_items(&self, ItemTable::Genres);
+    /// ```
+    pub async fn get_items(&self, table_name: impl Into<&str>) -> Result<Vec<String>, ChadError> {
         let result = self
             .client
-            .rpc(table_name, "")
+            .rpc(table_name.into(), "")
             .execute()
             .await?
             .json::<Vec<String>>()
@@ -91,6 +133,7 @@ impl DatabaseFetcher {
         Ok(result)
     }
 
+    /// Find a banner for the given game name
     pub async fn find_banner(&self, game_name: &str) -> Result<String, ChadError> {
         let result = self
             .client
@@ -112,6 +155,7 @@ impl DatabaseFetcher {
     }
 }
 
+/// Returns a magnet link for the given game with the trackers in [TRACKERS](TRACKERS).
 pub fn get_magnet(game: &Game) -> String {
     let mut magnet = format!("magnet:?xt=urn:btih:{}&dn={}", game.hash, game.name);
     for tracker in TRACKERS {

@@ -7,16 +7,23 @@ use std::{
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TorrentConfig {
+    /// Map of torrent clients
     pub clients: HashMap<String, TorrentClientConfig>,
 }
 
+/// Configuration file of Chad Launcher
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Path to the directory where game metadata and banners are stored
     pub data_path: PathBuf,
+    /// Paths to scan when loading the library
     pub library_paths: Vec<PathBuf>,
+    /// Terminal to use when opening a directory in the terminal
     pub terminal: String,
+    /// List of scripts to ignore when scanning the library
     pub script_blacklist: Vec<String>,
+    /// Torrent client configuration
     pub torrent: TorrentConfig,
 }
 
@@ -33,6 +40,10 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Creates a new Config struct by trying to load a configuuration file located at:
+    /// `$XDG_CONFIG_HOME/chad_launcher/config.json`
+    ///
+    /// The location and file type of this file is subject to change in the near future.
     pub fn new() -> Self {
         let config_dir = dirs::config_dir().unwrap().join("chad_launcher");
         let _ = std::fs::create_dir_all(&config_dir);
@@ -48,6 +59,7 @@ impl Config {
         }
     }
 
+    /// Save the current configuration to the configuration file
     pub fn save(&self) -> Result<(), ChadError> {
         let config_dir = dirs::config_dir().unwrap().join("chad_launcher");
         let _ = std::fs::create_dir_all(&config_dir);
