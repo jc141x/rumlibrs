@@ -3,6 +3,9 @@ use chad_torrent::{DelugeBackend, QBittorrentBackend, TorrentClient};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Wrapper around [chad_torrent::Torrent](chad_torrent::Torrent) that adds a client field.
+/// The torrent field is flattened when (de)serialized and the underlying [chad_torrent::Torrent](chad_torrent::Torrent)
+/// is returned when dereferenced.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Torrent {
     pub client: String,
@@ -25,6 +28,7 @@ impl std::ops::DerefMut for Torrent {
     }
 }
 
+/// Configuration of a torrent client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "backend")]
 pub enum TorrentClientConfig {
@@ -34,18 +38,20 @@ pub enum TorrentClientConfig {
     QBittorrent(QBittorrentConfig),
 }
 
+/// Configuration of Deluge
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DelugeConfig {
-    web_address: String,
-    web_password: String,
+    pub web_address: String,
+    pub web_password: String,
     pub daemon_id: Option<String>,
 }
 
+/// Configuration of qBittorrent
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QBittorrentConfig {
-    host: String,
-    username: String,
-    password: String,
+    pub host: String,
+    pub username: String,
+    pub password: String,
 }
 
 #[derive(Default)]
@@ -58,6 +64,8 @@ impl DownloadManager {
         Self::default()
     }
 
+    /// Tries to connect to the clients configured in the given configuration.
+    /// Will only attempt to connect when the torrent client is not already connected
     pub async fn load_config(&mut self, config: &Config) -> Result<(), ChadError> {
         for (name, c) in &config.torrent.clients {
             self.load_client(&name, &c).await.ok();
@@ -66,6 +74,8 @@ impl DownloadManager {
         Ok(())
     }
 
+    /// Tries to connect to the torrent client with the given name and configuration.
+    /// Will only attempt to connect when the torrent client is not already connected
     pub async fn load_client(
         &mut self,
         name: &str,
@@ -87,14 +97,17 @@ impl DownloadManager {
         Ok(())
     }
 
+    /// Insert a client in the list of connected clients
     pub fn add_client(&mut self, name: &str, client: impl Into<TorrentClient>) {
         self.clients.insert(name.into(), client.into());
     }
 
+    /// Remove a client from the list of connected clients
     pub fn remove_client(&mut self, name: &str) {
         self.clients.remove(name);
     }
 
+    /// Try to connect to Deluge with the given configuration
     pub async fn deluge_connect(&self, config: &DelugeConfig) -> Result<DelugeBackend, ChadError> {
         let backend = DelugeBackend::new(&config.web_address, &config.web_password).await?;
 
@@ -105,6 +118,7 @@ impl DownloadManager {
         Ok(backend)
     }
 
+    /// Try to connect to qBittorrent with the given configuration
     pub async fn qbittorrent_connect(
         &self,
         config: &QBittorrentConfig,
@@ -112,10 +126,12 @@ impl DownloadManager {
         Ok(QBittorrentBackend::new(&config.host, &config.username, &config.password).await?)
     }
 
+    /// Returns a list of connected clients
     pub fn clients(&self) -> impl Iterator<Item = &String> {
         self.clients.keys()
     }
 
+    /// Returns the connected client with the given name
     pub fn client(&self, name: &str) -> Option<&TorrentClient> {
         self.clients.get(name)
     }

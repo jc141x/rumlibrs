@@ -11,15 +11,24 @@ use titlecase::titlecase;
 
 #[derive(Serialize, Clone, Debug)]
 pub struct Game {
-    id: usize,
-    name: String,
-    executable_dir: PathBuf,
-    scripts: Vec<Script>,
-    banner_path: Option<PathBuf>,
-    banner: Option<String>,
-    data_path: PathBuf,
-    log_file: PathBuf,
-    config_file: PathBuf,
+    /// Unique identifier, usually the index of the list that contains this `Game`
+    pub id: usize,
+    /// Name of the game
+    pub name: String,
+    /// Path to the directory that contains the executable start scripts
+    pub executable_dir: PathBuf,
+    /// List of start scripts
+    pub scripts: Vec<Script>,
+    /// Path to a banner image
+    pub banner_path: Option<PathBuf>,
+    /// base64 encoded data blob: `data:image/png;base64,<base64 string>`
+    pub banner: Option<String>,
+    /// Directory where extra metadata is stored
+    pub data_path: PathBuf,
+    /// Path to the log file
+    pub log_file: PathBuf,
+    /// Path to the configuration file
+    pub config_file: PathBuf,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -92,6 +101,8 @@ fn find_scripts(executable_dir: &Path, blacklist: &[String]) -> Result<Vec<Scrip
 }
 
 impl Game {
+    /// Creates a new `Game` from the given configuration with the given id and path to the
+    /// directory that contains the executables of this game.
     pub fn new(config: &Config, id: usize, executable_dir: PathBuf) -> Self {
         let slug: String = executable_dir.file_name().unwrap().to_str().unwrap().into();
         let name = prettify_slug(&slug);
@@ -128,6 +139,7 @@ impl Game {
         &self.executable_dir
     }
 
+    /// Uses the given `DatabaseFetcher` to find a matching banner for the game
     pub async fn get_banner(&mut self, fetcher: &DatabaseFetcher) -> Result<(), ChadError> {
         if let Ok(banner_path) = fetcher.find_banner(&self.name).await {
             let target = format!(
@@ -147,6 +159,7 @@ impl Game {
         Ok(())
     }
 
+    /// Launches the given script. Returns the receiving end of the stdout from the child process.
     pub fn launch(&self, script: &str) -> Result<Box<dyn Read>, ChadError> {
         let child = Command::new(&self.executable_dir.join(&script))
             .current_dir(&self.executable_dir)
@@ -166,6 +179,8 @@ impl LibraryFetcher {
         Self::default()
     }
 
+    /// Load games by scanning library paths. Ignores any game directory that contains a `.ignore` or
+    /// `.chadignore` file. Ignores start scripts in `config.script_blacklist`.
     pub fn load_games(&mut self, config: &Config) {
         self.games = config
             // Iterate over all library paths
@@ -219,6 +234,7 @@ impl LibraryFetcher {
             .collect();
     }
 
+    /// Downloads banners for each game
     pub async fn download_banners(&mut self, fetcher: &DatabaseFetcher) {
         join_all(
             self.games
@@ -241,7 +257,8 @@ impl LibraryFetcher {
         self.iter_games().cloned().collect()
     }
 
-    pub fn get_game<'a>(&'a self, index: usize) -> Option<&'a Game> {
-        self.games.get(index)
+    /// Get a game from the given id
+    pub fn get_game<'a>(&'a self, id: usize) -> Option<&'a Game> {
+        self.games.get(id)
     }
 }
