@@ -1,8 +1,11 @@
+pub use crate::schema::ListGames as Game;
+
+use crate::schema;
 use crate::util::ChadError;
 use postgrest::Postgrest;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-pub const API_KEY: &'static str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlhdCI6MTYyNzY0NDc0OCwiZXhwIjoxOTQzMjIwNzQ4fQ.MheXAiuWYFGDuFhfzAnANMzJU2UU4HN2dxwMxGdQd5A";
+pub const PUBLIC_API_KEY: &'static str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlhdCI6MTYyNzY0NDc0OCwiZXhwIjoxOTQzMjIwNzQ4fQ.MheXAiuWYFGDuFhfzAnANMzJU2UU4HN2dxwMxGdQd5A";
 
 pub const TRACKERS: &[&'static str] = &[
     "udp://tracker.leechers-paradise.org:6969/announce",
@@ -23,56 +26,6 @@ pub const TRACKERS: &[&'static str] = &[
     "udp://coppersurfer.tk:6969/announce",
 ];
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Game {
-    /// Unique identifier, primary key in the database
-    pub id: usize,
-    /// Id of the torrent on 1337x
-    pub leetx_id: usize,
-    /// Name of the game
-    pub name: String,
-    /// Version of the game
-    pub version: String,
-    /// Type: Wine or Native
-    #[serde(rename = "type")]
-    pub type_: String,
-    /// Infohash of the torrent
-    pub hash: String,
-    /// Description of the game
-    pub description: String,
-    /// Whether the game is meant for a mature audience
-    pub nsfw: bool,
-    /// Relative path to the banner. Banners can be downloaded from here: `https://gitlab.com/chad-productions/chad_launcher_banners/-/raw/master/<banner_path>`
-    pub banner_path: Option<String>,
-    /// List of genres
-    pub genres: Vec<String>,
-    /// List of tags
-    pub tags: Vec<String>,
-    /// List of languages
-    pub languages: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct GetGamesOpts {
-    /// Page number starting from 0
-    pub page_number: usize,
-    /// Amount of games on each page
-    pub page_size: usize,
-
-    /// Language filter
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub filter_language: Option<String>,
-    /// Tag filter
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub filter_tag: Option<String>,
-    /// Genre filter
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub filter_genre: Option<String>,
-    /// A search query
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub search: Option<String>,
-}
-
 #[derive(Debug, Clone)]
 pub enum ItemTable {
     Genres,
@@ -90,27 +43,119 @@ impl Into<&str> for ItemTable {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct GetGamesOpts {
+    /// Page number starting from 0
+    pub page_number: usize,
+    /// Amount of games on each page
+    pub page_size: usize,
+
+    /// Language filter
+    pub filter_language: Option<String>,
+    /// Tag filter
+    pub filter_tag: Option<String>,
+    /// Genre filter
+    pub filter_genre: Option<String>,
+    /// A search query
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search: Option<String>,
+}
+
+pub struct Builder<T: schema::Schema + DeserializeOwned> {
+    _schema: std::marker::PhantomData<T>,
+    builder: postgrest::Builder,
+}
+
+impl<S: schema::Schema + DeserializeOwned> Builder<S> {
+    pub fn new(client: &Postgrest) -> Self {
+        Self {
+            _schema: std::marker::PhantomData,
+            builder: client.from(S::table()),
+        }
+    }
+
+    pub fn select<T>(mut self, columns: T) -> Self
+    where
+        T: Into<String>,
+    {
+        self.builder = self.builder.select(columns);
+        self
+    }
+
+    pub async fn execute(self) -> Result<Vec<S>, ChadError> {
+        Ok(self.builder.execute().await?.json().await?)
+    }
+}
+
 pub struct DatabaseFetcher {
     client: Postgrest,
 }
 
 impl DatabaseFetcher {
-    pub fn new() -> Self {
+    pub fn new(api_key: Option<&str>) -> Self {
         Self {
             client: Postgrest::new("https://bkftwbhopivmrgzcagus.supabase.co/rest/v1/")
-                .insert_header("apikey", API_KEY),
+                .insert_header("apikey", api_key.unwrap_or(PUBLIC_API_KEY)),
         }
+    }
+
+    /// Creates a new query builder
+    ///
+    /// ```rust
+    /// use chad_rs::database::DatabaseFetcher;
+    /// use chad_rs::schema;
+    ///
+    /// async {
+    ///     let database = DatabaseFetcher::new(None);
+    ///     let genres: Vec<schema::Genre> = database.from().execute().await.unwrap();
+    /// };
+    /// ```
+    pub fn from<T: schema::Schema + DeserializeOwned>(&self) -> Builder<T> {
+        Builder::new(&self.client)
+    }
+
+    /// Lists a table in the database
+    ///
+    /// ```rust
+    /// use chad_rs::database::DatabaseFetcher;
+    /// use chad_rs::schema;
+    ///
+    /// async {
+    ///     let database = DatabaseFetcher::new(None);
+    ///     let genres: Vec<schema::Game> = database.list_table().await.unwrap();
+    /// };
+    /// ```
+    pub async fn list_table<T: schema::Schema + DeserializeOwned>(
+        &self,
+    ) -> Result<Vec<T>, ChadError> {
+        Builder::new(&self.client).select("*").execute().await
     }
 
     /// Get a list of games from the database
     pub async fn get_games(&self, opts: &GetGamesOpts) -> Result<Vec<Game>, ChadError> {
-        let result = self
+        let mut builder = self
             .client
-            .rpc("get_games", &serde_json::to_string(&opts)?)
-            .execute()
-            .await?
-            .json::<Vec<Game>>()
-            .await?;
+            .from("list_games")
+            .select("*")
+            .range(opts.page_number, opts.page_number + opts.page_size - 1);
+
+        if let Some(language) = &opts.filter_language {
+            builder = builder.cs("languages", format!("{{{}}}", language))
+        }
+
+        if let Some(genre) = &opts.filter_genre {
+            builder = builder.cs("genres", format!("{{{}}}", genre))
+        }
+
+        if let Some(tag) = &opts.filter_tag {
+            builder = builder.cs("tags", format!("{{{}}}", tag))
+        }
+
+        if let Some(query) = &opts.search {
+            builder = builder.ilike("name", format!("*{}*", query))
+        }
+
+        let result = builder.execute().await?.json().await?;
 
         Ok(result)
     }
@@ -119,16 +164,23 @@ impl DatabaseFetcher {
     /// [ItemTable](ItemTable).
     ///
     /// ```rust
-    /// let genres = database.get_items(&self, ItemTable::Genres);
+    /// use chad_rs::database::{DatabaseFetcher, ItemTable};
+    ///
+    /// let database = DatabaseFetcher::new(None);
+    /// let genres = database.get_items(ItemTable::Genres);
     /// ```
+    #[deprecated(since = "0.2.0", note = "please use `list_table` or `from` instead")]
     pub async fn get_items(&self, table_name: impl Into<&str>) -> Result<Vec<String>, ChadError> {
         let result = self
             .client
-            .rpc(table_name.into(), "")
+            .from(table_name.into())
             .execute()
             .await?
-            .json::<Vec<String>>()
-            .await?;
+            .json::<Vec<schema::Item>>()
+            .await?
+            .into_iter()
+            .map(|v| v.name)
+            .collect();
 
         Ok(result)
     }
@@ -137,10 +189,12 @@ impl DatabaseFetcher {
     pub async fn find_banner(&self, game_name: &str) -> Result<String, ChadError> {
         let result = self
             .client
-            .rpc("get_games", format!("{{ \"search\": \"{}\" }}", game_name))
+            .from("game")
+            .select("*")
+            .ilike("name", format!("{}", game_name))
             .execute()
             .await?
-            .json::<Vec<Game>>()
+            .json::<Vec<schema::Game>>()
             .await?;
 
         if let Some(game) = result.get(0) {
@@ -162,4 +216,33 @@ pub fn get_magnet(game: &Game) -> String {
         magnet.push_str(&format!("&tr={}", tracker));
     }
     magnet
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_get_games() -> Result<(), ChadError> {
+        let database = DatabaseFetcher::new(None);
+        let opts = GetGamesOpts {
+            page_number: 0,
+            page_size: 20,
+            //filter_language: Some("Latin".into()),
+            //filter_genre: Some("Action".into()),
+            search: Some("Mine".into()),
+            ..Default::default()
+        };
+        let res = database.get_games(&opts).await?;
+        println!("{:#?}", res);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_find_banner() -> Result<(), ChadError> {
+        let database = DatabaseFetcher::new(None);
+        let banner = database.find_banner("Minecraft").await;
+        println!("{:#?}", banner);
+        Ok(())
+    }
 }
