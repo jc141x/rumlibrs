@@ -2,10 +2,12 @@ pub use crate::schema::ListGames as Game;
 
 use crate::schema;
 use crate::util::ChadError;
+use async_trait::async_trait;
 use postgrest::Postgrest;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-pub const PUBLIC_API_KEY: &'static str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlhdCI6MTYyNzY0NDc0OCwiZXhwIjoxOTQzMjIwNzQ4fQ.MheXAiuWYFGDuFhfzAnANMzJU2UU4HN2dxwMxGdQd5A";
+pub const SUPABASE_ENDPOINT: &'static str = "https://bkftwbhopivmrgzcagus.supabase.co/rest/v1/";
+pub const SUPABASE_PUBLIC_API_KEY: &'static str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlhdCI6MTYyNzY0NDc0OCwiZXhwIjoxOTQzMjIwNzQ4fQ.MheXAiuWYFGDuFhfzAnANMzJU2UU4HN2dxwMxGdQd5A";
 
 pub const TRACKERS: &[&'static str] = &[
     "udp://tracker.leechers-paradise.org:6969/announce",
@@ -51,111 +53,125 @@ pub struct GetGamesOpts {
     pub page_size: usize,
 
     /// Language filter
-    pub filter_language: Option<String>,
+    pub filter_languages: Vec<String>,
     /// Tag filter
-    pub filter_tag: Option<String>,
+    pub filter_tags: Vec<String>,
     /// Genre filter
-    pub filter_genre: Option<String>,
+    pub filter_genres: Vec<String>,
     /// A search query
     #[serde(skip_serializing_if = "Option::is_none")]
     pub search: Option<String>,
-}
-
-pub struct Builder<T: schema::Schema + DeserializeOwned> {
-    _schema: std::marker::PhantomData<T>,
-    builder: postgrest::Builder,
-}
-
-impl<S: schema::Schema + DeserializeOwned> Builder<S> {
-    pub fn new(client: &Postgrest) -> Self {
-        Self {
-            _schema: std::marker::PhantomData,
-            builder: client.from(S::table()),
-        }
-    }
-
-    pub fn select<T>(mut self, columns: T) -> Self
-    where
-        T: Into<String>,
-    {
-        self.builder = self.builder.select(columns);
-        self
-    }
-
-    pub async fn execute(self) -> Result<Vec<S>, ChadError> {
-        Ok(self.builder.execute().await?.json().await?)
-    }
 }
 
 pub struct DatabaseFetcher {
     client: Postgrest,
 }
 
+#[async_trait]
+pub trait BuilderExt {
+    /// Shorthand for `self.execute().await?.json().await`
+    async fn json<T: DeserializeOwned>(self) -> Result<T, reqwest::Error>;
+}
+
+#[async_trait]
+impl BuilderExt for postgrest::Builder {
+    async fn json<T: DeserializeOwned>(self) -> Result<T, reqwest::Error> {
+        self.execute().await?.json().await
+    }
+}
+
 impl DatabaseFetcher {
-    pub fn new(api_key: Option<&str>) -> Self {
+    /// Create a new DatabaseFetcher using the given supabase endpoint and supabase API key.
+    pub fn new(endpoint: &str, api_key: &str) -> Self {
         Self {
-            client: Postgrest::new("https://bkftwbhopivmrgzcagus.supabase.co/rest/v1/")
-                .insert_header("apikey", api_key.unwrap_or(PUBLIC_API_KEY)),
+            client: Postgrest::new(endpoint).insert_header("apikey", api_key),
         }
+    }
+
+    /// Uses johncena141 database endpoint and public API key by default.
+    pub fn default() -> Self {
+        Self::new(SUPABASE_ENDPOINT, SUPABASE_PUBLIC_API_KEY)
     }
 
     /// Creates a new query builder
     ///
     /// ```rust
-    /// use chad_rs::database::DatabaseFetcher;
+    /// # use chad_rs::database::DatabaseFetcher;
+    /// use chad_rs::database::BuilderExt;
     /// use chad_rs::schema;
     ///
-    /// async {
-    ///     let database = DatabaseFetcher::new(None);
-    ///     let genres: Vec<schema::Genre> = database.from().execute().await.unwrap();
-    /// };
+    /// # tokio_test::block_on(async {
+    /// # let database = DatabaseFetcher::default();
+    /// let genres: Vec<schema::Genre> = database.from::<schema::Genre>().json().await.unwrap();
+    /// # });
     /// ```
-    pub fn from<T: schema::Schema + DeserializeOwned>(&self) -> Builder<T> {
-        Builder::new(&self.client)
+    pub fn from<T: schema::Schema + DeserializeOwned>(&self) -> postgrest::Builder {
+        self.client.from(T::table())
     }
 
     /// Lists a table in the database
     ///
     /// ```rust
-    /// use chad_rs::database::DatabaseFetcher;
+    /// # use chad_rs::database::DatabaseFetcher;
     /// use chad_rs::schema;
     ///
-    /// async {
-    ///     let database = DatabaseFetcher::new(None);
-    ///     let genres: Vec<schema::Game> = database.list_table().await.unwrap();
-    /// };
+    /// # tokio_test::block_on(async {
+    /// # let database = DatabaseFetcher::default();
+    /// let games: Vec<schema::Game> = database.list_table().await.unwrap();
+    /// let languages: Vec<String> = database.list_table::<schema::Language>().await.unwrap().into_iter().map(|l| l.into()).collect();
+    /// # });
     /// ```
     pub async fn list_table<T: schema::Schema + DeserializeOwned>(
         &self,
     ) -> Result<Vec<T>, ChadError> {
-        Builder::new(&self.client).select("*").execute().await
+        Ok(self.from::<T>().select("*").json().await?)
     }
 
     /// Get a list of games from the database
+    ///
+    /// ```rust
+    /// use chad_rs::database::GetGamesOpts;
+    /// # use chad_rs::database::DatabaseFetcher;
+    ///
+    /// # let database = DatabaseFetcher::default();
+    /// let opts = GetGamesOpts {
+    ///     page_number: 0,
+    ///     page_size: 20,
+    ///     filter_languages: vec!["Latin".into(), "Dutch".into()],
+    ///     filter_genres: vec!["Action".into(), "Adventure".into()],
+    ///     ..Default::default()
+    /// };
+    /// # tokio_test::block_on(async {
+    /// let res = database.get_games(&opts).await.unwrap();
+    /// #    println!("{:#?}", res);
+    /// # });
+    /// ```
     pub async fn get_games(&self, opts: &GetGamesOpts) -> Result<Vec<Game>, ChadError> {
         let mut builder = self
-            .client
-            .from("list_games")
+            .from::<schema::ListGames>()
             .select("*")
             .range(opts.page_number, opts.page_number + opts.page_size - 1);
 
-        if let Some(language) = &opts.filter_language {
-            builder = builder.cs("languages", format!("{{{}}}", language))
+        if !opts.filter_languages.is_empty() {
+            builder = builder.ov(
+                "languages",
+                format!("{{{}}}", opts.filter_languages.join(",")),
+            )
         }
 
-        if let Some(genre) = &opts.filter_genre {
-            builder = builder.cs("genres", format!("{{{}}}", genre))
+        if !opts.filter_genres.is_empty() {
+            builder = builder.ov("genres", format!("{{{}}}", opts.filter_genres.join(",")))
         }
 
-        if let Some(tag) = &opts.filter_tag {
-            builder = builder.cs("tags", format!("{{{}}}", tag))
+        if !opts.filter_tags.is_empty() {
+            builder = builder.ov("tags", format!("{{{}}}", opts.filter_tags.join(",")))
         }
 
         if let Some(query) = &opts.search {
             builder = builder.ilike("name", format!("*{}*", query))
         }
 
-        let result = builder.execute().await?.json().await?;
+        let result = builder.json().await?;
 
         Ok(result)
     }
@@ -164,18 +180,19 @@ impl DatabaseFetcher {
     /// [ItemTable](ItemTable).
     ///
     /// ```rust
-    /// use chad_rs::database::{DatabaseFetcher, ItemTable};
+    /// use chad_rs::database::ItemTable;
+    /// # use chad_rs::database::DatabaseFetcher;
     ///
-    /// let database = DatabaseFetcher::new(None);
-    /// let genres = database.get_items(ItemTable::Genres);
+    /// # let database = DatabaseFetcher::default();
+    /// # tokio_test::block_on(async {
+    /// let genres = database.get_items(ItemTable::Genres).await;
+    /// # })
     /// ```
     #[deprecated(since = "0.2.0", note = "please use `list_table` or `from` instead")]
     pub async fn get_items(&self, table_name: impl Into<&str>) -> Result<Vec<String>, ChadError> {
         let result = self
             .client
             .from(table_name.into())
-            .execute()
-            .await?
             .json::<Vec<schema::Item>>()
             .await?
             .into_iter()
@@ -186,14 +203,20 @@ impl DatabaseFetcher {
     }
 
     /// Find a banner for the given game name
+    ///
+    /// ```rust
+    /// # use chad_rs::database::DatabaseFetcher;
+    ///
+    /// # let database = DatabaseFetcher::default();
+    /// # tokio_test::block_on(async {
+    /// let banner = database.find_banner("Minecraft").await;
+    /// # });
+    /// ```
     pub async fn find_banner(&self, game_name: &str) -> Result<String, ChadError> {
         let result = self
-            .client
-            .from("game")
+            .from::<schema::Game>()
             .select("*")
             .ilike("name", format!("{}", game_name))
-            .execute()
-            .await?
             .json::<Vec<schema::Game>>()
             .await?;
 
@@ -216,33 +239,4 @@ pub fn get_magnet(game: &Game) -> String {
         magnet.push_str(&format!("&tr={}", tracker));
     }
     magnet
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_get_games() -> Result<(), ChadError> {
-        let database = DatabaseFetcher::new(None);
-        let opts = GetGamesOpts {
-            page_number: 0,
-            page_size: 20,
-            //filter_language: Some("Latin".into()),
-            //filter_genre: Some("Action".into()),
-            search: Some("Mine".into()),
-            ..Default::default()
-        };
-        let res = database.get_games(&opts).await?;
-        println!("{:#?}", res);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_find_banner() -> Result<(), ChadError> {
-        let database = DatabaseFetcher::new(None);
-        let banner = database.find_banner("Minecraft").await;
-        println!("{:#?}", banner);
-        Ok(())
-    }
 }
