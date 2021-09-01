@@ -1,6 +1,6 @@
-pub use crate::schema::ListGames as Game;
+pub mod schema;
+pub use schema::ListGames as Game;
 
-use crate::schema;
 use crate::util::ChadError;
 use async_trait::async_trait;
 use postgrest::Postgrest;

@@ -16,6 +16,4 @@ pub mod database;
 pub mod download;
 #[cfg(feature = "library")]
 pub mod library;
-#[cfg(feature = "database")]
-pub mod schema;
 pub mod util;
