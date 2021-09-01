@@ -1,4 +1,8 @@
-use crate::{config::Config, database::DatabaseFetcher, util::ChadError};
+use crate::{config::Config, util::ChadError};
+
+#[cfg(feature = "database")]
+use crate::database::DatabaseFetcher;
+
 use futures::future::join_all;
 use serde::Serialize;
 use std::{
@@ -140,6 +144,7 @@ impl Game {
     }
 
     /// Uses the given `DatabaseFetcher` to find a matching banner for the game
+    #[cfg(feature = "database")]
     pub async fn get_banner(&mut self, fetcher: &DatabaseFetcher) -> Result<(), ChadError> {
         if let Ok(banner_path) = fetcher.find_banner(&self.name).await {
             let target = format!(
@@ -235,6 +240,7 @@ impl LibraryFetcher {
     }
 
     /// Downloads banners for each game
+    #[cfg(feature = "database")]
     pub async fn download_banners(&mut self, fetcher: &DatabaseFetcher) {
         join_all(
             self.games

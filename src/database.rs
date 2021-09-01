@@ -6,9 +6,13 @@ use async_trait::async_trait;
 use postgrest::Postgrest;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
+/// johncena141 supabase PostgREST endpoint
 pub const SUPABASE_ENDPOINT: &'static str = "https://bkftwbhopivmrgzcagus.supabase.co/rest/v1/";
+
+/// johncena141 database publick API key
 pub const SUPABASE_PUBLIC_API_KEY: &'static str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlhdCI6MTYyNzY0NDc0OCwiZXhwIjoxOTQzMjIwNzQ4fQ.MheXAiuWYFGDuFhfzAnANMzJU2UU4HN2dxwMxGdQd5A";
 
+/// List of trackers used by johncena141 torrents
 pub const TRACKERS: &[&'static str] = &[
     "udp://tracker.leechers-paradise.org:6969/announce",
     "udp://tracker.opentrackr.org:1337/announce",
