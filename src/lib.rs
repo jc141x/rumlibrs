@@ -1,6 +1,6 @@
 //! Available features:
 //!
-//! ```
+//! ```toml
 //! default = ["library"]
 //! pirate = ["library", "download"]
 //! johncena141 = ["library", "database", "download"]

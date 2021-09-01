@@ -102,7 +102,7 @@ impl DatabaseFetcher {
     /// ```rust
     /// # use chad_rs::database::DatabaseFetcher;
     /// use chad_rs::database::BuilderExt;
-    /// use chad_rs::schema;
+    /// use chad_rs::database::schema;
     ///
     /// # tokio_test::block_on(async {
     /// # let database = DatabaseFetcher::default();
@@ -117,7 +117,7 @@ impl DatabaseFetcher {
     ///
     /// ```rust
     /// # use chad_rs::database::DatabaseFetcher;
-    /// use chad_rs::schema;
+    /// use chad_rs::database::schema;
     ///
     /// # tokio_test::block_on(async {
     /// # let database = DatabaseFetcher::default();
