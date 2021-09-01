@@ -10,6 +10,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 
+use self::schema::Schema;
+
 /// johncena141 supabase PostgREST endpoint
 pub const SUPABASE_ENDPOINT: &'static str = "https://bkftwbhopivmrgzcagus.supabase.co/rest/v1";
 
@@ -77,14 +79,26 @@ pub struct DatabaseFetcher {
 
 #[async_trait]
 pub trait BuilderExt {
-    /// Shorthand for `self.execute().await?.json().await`
-    async fn json<T: DeserializeOwned>(self) -> Result<T, reqwest::Error>;
+    /// Like execute but checks error code
+    async fn run(self) -> Result<reqwest::Response, ChadError>;
+    /// Shorthand for `self.run().await?.json().await`
+    async fn json<T: DeserializeOwned>(self) -> Result<T, ChadError>;
 }
 
 #[async_trait]
 impl BuilderExt for postgrest::Builder {
-    async fn json<T: DeserializeOwned>(self) -> Result<T, reqwest::Error> {
-        self.execute().await?.json().await
+    async fn run(self) -> Result<reqwest::Response, ChadError> {
+        let res = self.execute().await?;
+
+        if res.status().is_success() {
+            Ok(res)
+        } else {
+            Err(ChadError::DatabaseError(res.status().as_u16()))
+        }
+    }
+
+    async fn json<T: DeserializeOwned>(self) -> Result<T, ChadError> {
+        Ok(self.run().await?.json().await?)
     }
 }
 
@@ -134,7 +148,7 @@ impl DatabaseFetcher {
     pub async fn list_table<T: schema::Schema + DeserializeOwned>(
         &self,
     ) -> Result<Vec<T>, ChadError> {
-        Ok(self.from::<T>().select("*").json().await?)
+        self.from::<T>().select("*").json().await
     }
 
     /// Get a list of games from the database
@@ -181,9 +195,7 @@ impl DatabaseFetcher {
             builder = builder.ilike("name", format!("*{}*", query))
         }
 
-        let result = builder.json().await?;
-
-        Ok(result)
+        builder.json().await
     }
 
     /// Gets a list of items from the given table name. For available table names, see
@@ -236,7 +248,7 @@ impl DatabaseFetcher {
         self.client
             .from(T::table())
             .upsert(serde_json::to_string(item)?)
-            .execute()
+            .run()
             .await?;
         Ok(())
     }
@@ -245,246 +257,102 @@ impl DatabaseFetcher {
         self.client
             .from(T::table())
             .insert(serde_json::to_string(item)?)
-            .execute()
+            .run()
             .await?;
         Ok(())
     }
 
-    pub async fn insert_all<T: schema::Schema, V: Serialize + std::fmt::Debug>(
+    pub async fn insert_all<T: schema::Schema, V: Serialize>(
         &self,
         items: &[V],
     ) -> Result<(), ChadError> {
-        println!("insert_all: {:#?}", items);
-        let res = self
-            .client
+        self.client
             .from(T::table())
             .insert(serde_json::to_string(items)?)
-            .execute()
+            .run()
             .await?;
-        println!("{:#?}", res);
         Ok(())
     }
 
-    pub async fn upsert_all<T: schema::Schema, V: Serialize + std::fmt::Debug>(
+    pub async fn upsert_all<T: schema::Schema, V: Serialize>(
         &self,
         items: &[V],
     ) -> Result<(), ChadError> {
-        println!("upsert_all: {:#?}", items);
-        let res = self
-            .client
+        self.client
             .from(T::table())
             .upsert(serde_json::to_string(items)?)
-            .execute()
+            .run()
             .await?;
-        println!("{:#?}", res);
         Ok(())
     }
 
-    /// Try to insert a new [Item](schema::Item) in a table. If the item already exists, this
-    /// function will still succeed.
-    ///
-    /// ```rust
-    /// # use chad_rs::database::DatabaseFetcher;
-    /// use chad_rs::database::schema;
-    ///
-    /// # let database = DatabaseFetcher::default();
-    /// # tokio_test::block_on(async {
-    /// database.insert_item::<schema::Language>("English").await.unwrap();
-    /// # });
-    ///
-    /// ```
-    pub async fn insert_item<T: schema::Item + DeserializeOwned>(
-        &self,
-        name: &str,
-    ) -> Result<usize, ChadError> {
-        println!("Inserting item {} into {} ...", name, T::table());
-
-        let json = json!({ "name": name });
-
-        let res = self
-            .client
-            .from(T::table())
-            .insert(serde_json::to_string(&json)?)
-            .execute()
-            .await?;
-
-        let status = res.status().as_u16();
-
-        if status == 409 || status == 201 {
-            Ok(self
-                .find_rows_with::<T>("name", &name)
-                .await?
-                .get(0)
-                .ok_or(ChadError::Message(format!(
-                    "Failed to add item {} to {}",
-                    name,
-                    T::table()
-                )))?
-                .id())
-        } else {
-            Err(ChadError::DatabaseError(status))
-        }
+    pub async fn add_items<I>(&self, game: &schema::Game, items: &[String]) -> Result<(), ChadError>
+    where
+        I: schema::Item + Serialize,
+    {
+        let items = items
+            .iter()
+            .map(|item| I::new(game, item))
+            .collect::<Vec<_>>();
+        self.upsert_all::<I, _>(&items).await
     }
 
-    pub async fn insert_items<T: schema::Item + DeserializeOwned>(
+    pub async fn delete_items<I>(
         &self,
-        names: &[String],
-    ) -> Result<(), ChadError> {
-        println!("Bulk inserting items {:?} into {} ...", names, T::table());
-
-        //let db_items = self.get_items_from_names::<T>(names).await?;
-
-        let json: Vec<_> = names.iter().map(|name| json!({ "name": name })).collect();
-
-        let res = self
-            .client
-            .from(T::table())
-            .insert(serde_json::to_string(&json)?)
-            .execute()
-            .await?;
-
-        let status = res.status().as_u16();
-
-        if status == 409 || status == 201 {
-            Ok(())
-        } else {
-            Err(ChadError::DatabaseError(status))
-        }
-    }
-
-    pub async fn get_items_from_names<T: schema::Item + DeserializeOwned>(
-        &self,
-        names: &[String],
-    ) -> Result<Vec<T>, ChadError> {
-        Ok(self
-            .from::<T>()
-            .select("*")
-            .in_("name", names)
-            .json()
-            .await?)
-    }
-
-    pub async fn insert_game_items<I, J>(
-        &self,
-        game_id: usize,
+        game: &schema::Game,
         items: &[String],
     ) -> Result<(), ChadError>
     where
-        I: schema::Item + DeserializeOwned + std::fmt::Debug,
-        J: schema::Junction2 + Serialize + std::fmt::Debug,
+        I: schema::Item + Serialize,
     {
-        self.insert_items::<I>(items).await?;
-        let items = self.get_items_from_names::<I>(items).await?;
-        println!("{:#?}", &items);
-        let res = self
-            .upsert_all::<J, _>(
-                &items
-                    .iter()
-                    .map(schema::Item::id)
-                    .map(|item_id| J::new(game_id, item_id))
-                    .collect::<Vec<_>>(),
-            )
+        self.client
+            .from(I::table())
+            .and(format!(
+                "id.eq.{},origin.eq.{},{}.in.({})",
+                game.id,
+                &game.origin,
+                I::field_name(),
+                items.join(",")
+            ))
+            .delete()
+            .run()
             .await?;
-        println!("{:#?}", res);
         Ok(())
     }
 
-    pub async fn add_game(
+    pub async fn add_update_game(
         &self,
         game: &schema::Game,
         languages: &[String],
         genres: &[String],
         tags: &[String],
     ) -> Result<(), ChadError> {
-        let leetx_id = game.leetx_id.to_string();
-        let mut game_obj: serde_json::Value = serde_json::to_value(&game)?;
+        self.upsert::<schema::Game>(game).await?;
 
-        // Remove the id in order to use auto increment
-        game_obj
-            .as_object_mut()
-            .ok_or(ChadError::Message("Invalid game".into()))?
-            .remove("id");
+        try_join!(
+            self.add_items::<schema::Language>(game, languages),
+            self.add_items::<schema::Genre>(game, genres),
+            self.add_items::<schema::Tag>(game, tags),
+        )?;
 
-        let mut same_games = self
-            .find_rows_with::<schema::Game>("leetx_id", &leetx_id)
+        Ok(())
+    }
+
+    pub async fn update_game_key(
+        &self,
+        old_origin: &str,
+        old_id: usize,
+        new_origin: &str,
+        new_id: usize,
+    ) -> Result<(), ChadError> {
+        self.client
+            .from(schema::Game::table())
+            .and(format!("id.eq.{},origin.eq.{}", old_id, old_origin))
+            .update(serde_json::to_string(
+                &json!({ "id": new_id, "origin": new_origin }),
+            )?)
+            .run()
             .await?;
-
-        if let Some(db_game) = same_games.pop() {
-            let mut new_game = game.clone();
-            new_game.id = db_game.id;
-            println!("Game already in database, updating ...");
-            self.upsert::<schema::Game>(&new_game).await?;
-        } else {
-            println!("Inserting game...");
-            self.insert::<schema::Game, serde_json::Value>(&game_obj)
-                .await?;
-        }
-
-        let game_id = self
-            .find_rows_with::<schema::Game>("leetx_id", &leetx_id)
-            .await?
-            .get(0)
-            .ok_or(ChadError::Message("Failed to add game to database".into()))?
-            .id;
-
-        let language_future =
-            self.insert_game_items::<schema::Language, schema::GameLanguage>(game_id, languages);
-        let genre_future =
-            self.insert_game_items::<schema::Genre, schema::GameGenre>(game_id, genres);
-        let tag_future = self.insert_game_items::<schema::Tag, schema::GameTag>(game_id, tags);
-        /*
-        let language_future = async {
-            self.insert_items::<schema::Language>(&languages).await?;
-            let items = self
-                .get_items_from_names::<schema::Language>(&languages)
-                .await?;
-            self.insert_all::<schema::GameLanguage, _>(
-                &items
-                    .iter()
-                    .map(schema::Item::id)
-                    .map(|language_id| schema::GameLanguage {
-                        game_id,
-                        language_id,
-                    })
-                    .collect::<Vec<_>>(),
-            )
-            .await
-        };
-
-        let language_futures = try_join_all(languages.into_iter().map(|l| async move {
-            let id = self.insert_item::<schema::Language>(&l).await?;
-            println!("Inserting ({}, {}) into game_language ...", game_id, id);
-            self.insert::<schema::GameLanguage, schema::GameLanguage>(&schema::GameLanguage {
-                game_id,
-                language_id: id,
-            })
-            .await
-        }));
-
-        let genre_futures = try_join_all(genres.into_iter().map(|g| async move {
-            let id = self.insert_item::<schema::Genre>(&g).await?;
-            println!("Inserting ({}, {}) into game_genre ...", game_id, id);
-            self.insert::<schema::GameGenre, schema::GameGenre>(&schema::GameGenre {
-                game_id,
-                genre_id: id,
-            })
-            .await
-        }));
-
-        let tag_futures = try_join_all(tags.into_iter().map(|g| async move {
-            let id = self.insert_item::<schema::Tag>(&g).await?;
-            println!("Inserting ({}, {}) into game_tag ...", game_id, id);
-            self.insert::<schema::GameTag, schema::GameTag>(&schema::GameTag {
-                game_id,
-                tag_id: id,
-            })
-            .await
-        }));*/
-
-        try_join!(language_future, genre_future, tag_future)?;
-
-        println!("Done");
-
         Ok(())
     }
 
@@ -493,12 +361,11 @@ impl DatabaseFetcher {
         key: &str,
         value: &str,
     ) -> Result<Vec<T>, ChadError> {
-        Ok(self
-            .from::<T>()
+        self.from::<T>()
             .select("*")
             .eq(key, value)
             .json::<Vec<T>>()
-            .await?)
+            .await
     }
 }
 
@@ -516,21 +383,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_insert_item() {
-        use schema;
-
-        let database = DatabaseFetcher::new(
-            SUPABASE_ENDPOINT,
-            &std::env::var("SUPABASE_SECRET_KEY").expect("Please set your supabase secret key"),
-        );
-        println!(
-            "{:#?}",
-            database.insert_item::<schema::Language>("Test123").await
-        );
-    }
-
-    #[tokio::test]
-    async fn test_add_game() {
+    async fn test_add_game_remove_languages() {
         use schema;
 
         let database = DatabaseFetcher::new(
@@ -539,15 +392,15 @@ mod tests {
         );
 
         let game = schema::Game {
-            id: 1,
+            id: 1337,
             name: "Test Game Please Ignore Me".into(),
-            banner_path: None,
+            origin: "your mom".into(),
             description: "I'm testing the insertion of new games into the database".into(),
             hash: "This is not a valid infohash at all".into(),
-            leetx_id: 1337,
             nsfw: true,
             type_: "Native".into(),
             version: "Version".into(),
+            ..Default::default()
         };
 
         let languages = &[
@@ -560,7 +413,20 @@ mod tests {
         let tags = &["Send".into(), "Help".into()];
 
         database
-            .add_game(&game, languages, genres, tags)
+            .add_update_game(&game, languages, genres, tags)
+            .await
+            .unwrap();
+
+        database
+            .delete_items::<schema::Language>(
+                &game,
+                &["Klingon".into(), "Vulcan".into(), "aaa".into()],
+            )
+            .await
+            .unwrap();
+
+        database
+            .update_game_key("your mom", 1337, "your dad", 69)
             .await
             .unwrap();
     }

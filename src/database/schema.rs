@@ -7,32 +7,42 @@ pub trait Schema {
     fn table() -> &'static str;
 }
 
+pub trait Item: Schema {
+    fn new(game: &Game, item: impl Into<String>) -> Self;
+    fn field_name() -> &'static str;
+}
+
 /// Table: language
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Language {
     pub id: usize,
-    pub name: String,
-}
-
-impl Item for Language {
-    fn id(&self) -> usize {
-        self.id
-    }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
+    pub origin: String,
+    pub language: String,
 }
 
 impl Schema for Language {
     fn table() -> &'static str {
+        "language_v2"
+    }
+}
+
+impl Item for Language {
+    fn new(game: &Game, item: impl Into<String>) -> Self {
+        Self {
+            id: game.id,
+            origin: game.origin.clone(),
+            language: item.into(),
+        }
+    }
+
+    fn field_name() -> &'static str {
         "language"
     }
 }
 
 impl Into<String> for Language {
     fn into(self) -> String {
-        self.name
+        self.language
     }
 }
 
@@ -40,28 +50,33 @@ impl Into<String> for Language {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Genre {
     pub id: usize,
-    pub name: String,
-}
-
-impl Item for Genre {
-    fn id(&self) -> usize {
-        self.id
-    }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
+    pub origin: String,
+    pub genre: String,
 }
 
 impl Schema for Genre {
     fn table() -> &'static str {
+        "genre_v2"
+    }
+}
+
+impl Item for Genre {
+    fn new(game: &Game, item: impl Into<String>) -> Self {
+        Self {
+            id: game.id,
+            origin: game.origin.clone(),
+            genre: item.into(),
+        }
+    }
+
+    fn field_name() -> &'static str {
         "genre"
     }
 }
 
 impl Into<String> for Genre {
     fn into(self) -> String {
-        self.name
+        self.genre
     }
 }
 
@@ -69,43 +84,43 @@ impl Into<String> for Genre {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Tag {
     pub id: usize,
-    pub name: String,
-}
-
-impl Item for Tag {
-    fn id(&self) -> usize {
-        self.id
-    }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
+    pub origin: String,
+    pub tag: String,
 }
 
 impl Schema for Tag {
     fn table() -> &'static str {
+        "tag_v2"
+    }
+}
+
+impl Item for Tag {
+    fn new(game: &Game, item: impl Into<String>) -> Self {
+        Self {
+            id: game.id,
+            origin: game.origin.clone(),
+            tag: item.into(),
+        }
+    }
+
+    fn field_name() -> &'static str {
         "tag"
     }
 }
 
 impl Into<String> for Tag {
     fn into(self) -> String {
-        self.name
+        self.tag
     }
 }
 
-pub trait Item: Schema {
-    fn id(&self) -> usize;
-    fn name(&self) -> &str;
-}
-
 /// Table: game
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Game {
-    /// Unique identifier, PK
+    /// Id of the torrent on the origin (usually 1337x.to right now), PK
     pub id: usize,
-    /// Id of the torrent on 1337x
-    pub leetx_id: usize,
+    /// Origin, where does this game come from, PK
+    pub origin: String,
     /// Name of the game
     pub name: String,
     /// Version of the game
@@ -122,11 +137,14 @@ pub struct Game {
     /// Relative path to the banner. Banners can be downloaded from here: `https://gitlab.com/chad-productions/chad_launcher_banners/-/raw/master/<banner_path>`
     #[serde(rename = "banner_rel_path")]
     pub banner_path: Option<String>,
+    /// Date on which the game was added to the database (not serialized!)
+    #[serde(skip_serializing)]
+    pub data_added: Option<String>,
 }
 
 impl Schema for Game {
     fn table() -> &'static str {
-        "game"
+        "game_v2"
     }
 }
 
@@ -176,7 +194,7 @@ pub struct ListGames {
 
 impl Schema for ListGames {
     fn table() -> &'static str {
-        "list_games"
+        "list_games_v2"
     }
 }
 
@@ -191,81 +209,5 @@ impl std::ops::Deref for ListGames {
 impl std::ops::DerefMut for ListGames {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.game
-    }
-}
-
-pub trait Junction2: Schema {
-    fn new(first: usize, second: usize) -> Self;
-}
-
-/// Table: game_language
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct GameLanguage {
-    /// PK, FK -> game.id
-    pub game_id: usize,
-    /// PK, FK -> language.id
-    pub language_id: usize,
-}
-
-impl Schema for GameLanguage {
-    fn table() -> &'static str {
-        "game_language"
-    }
-}
-
-impl Junction2 for GameLanguage {
-    fn new(first: usize, second: usize) -> Self {
-        Self {
-            game_id: first,
-            language_id: second,
-        }
-    }
-}
-
-/// Table: game_genre
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct GameGenre {
-    /// PK, FK -> game.id
-    pub game_id: usize,
-    /// PK, FK -> genre.id
-    pub genre_id: usize,
-}
-
-impl Schema for GameGenre {
-    fn table() -> &'static str {
-        "game_genre"
-    }
-}
-
-impl Junction2 for GameGenre {
-    fn new(first: usize, second: usize) -> Self {
-        Self {
-            game_id: first,
-            genre_id: second,
-        }
-    }
-}
-
-/// Table: game_tag
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct GameTag {
-    /// PK, FK -> game.id
-    pub game_id: usize,
-    /// PK, FK -> tag.id
-    pub tag_id: usize,
-}
-
-impl Schema for GameTag {
-    fn table() -> &'static str {
-        "game_tag"
-    }
-}
-
-impl Junction2 for GameTag {
-    fn new(first: usize, second: usize) -> Self {
-        Self {
-            game_id: first,
-            tag_id: second,
-        }
     }
 }
