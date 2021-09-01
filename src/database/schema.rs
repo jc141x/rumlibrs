@@ -9,19 +9,18 @@ pub trait Schema {
 
 /// Table: language
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Language(Item);
-
-impl std::ops::Deref for Language {
-    type Target = Item;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+pub struct Language {
+    pub id: usize,
+    pub name: String,
 }
 
-impl std::ops::DerefMut for Language {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+impl Item for Language {
+    fn id(&self) -> usize {
+        self.id
+    }
+
+    fn name(&self) -> &str {
+        &self.name
     }
 }
 
@@ -33,25 +32,24 @@ impl Schema for Language {
 
 impl Into<String> for Language {
     fn into(self) -> String {
-        self.0.into()
+        self.name
     }
 }
 
 /// Table: genre
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Genre(Item);
-
-impl std::ops::Deref for Genre {
-    type Target = Item;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+pub struct Genre {
+    pub id: usize,
+    pub name: String,
 }
 
-impl std::ops::DerefMut for Genre {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+impl Item for Genre {
+    fn id(&self) -> usize {
+        self.id
+    }
+
+    fn name(&self) -> &str {
+        &self.name
     }
 }
 
@@ -63,25 +61,24 @@ impl Schema for Genre {
 
 impl Into<String> for Genre {
     fn into(self) -> String {
-        self.0.into()
+        self.name
     }
 }
 
 /// Table: tag
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Tag(Item);
-
-impl std::ops::Deref for Tag {
-    type Target = Item;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+pub struct Tag {
+    pub id: usize,
+    pub name: String,
 }
 
-impl std::ops::DerefMut for Tag {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+impl Item for Tag {
+    fn id(&self) -> usize {
+        self.id
+    }
+
+    fn name(&self) -> &str {
+        &self.name
     }
 }
 
@@ -93,20 +90,13 @@ impl Schema for Tag {
 
 impl Into<String> for Tag {
     fn into(self) -> String {
-        self.0.into()
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Item {
-    pub id: usize,
-    pub name: String,
-}
-
-impl Into<String> for Item {
-    fn into(self) -> String {
         self.name
     }
+}
+
+pub trait Item: Schema {
+    fn id(&self) -> usize;
+    fn name(&self) -> &str;
 }
 
 /// Table: game
@@ -141,6 +131,33 @@ impl Schema for Game {
 }
 
 /// Table: list_games (view)
+///
+/// Query for reference:
+///
+/// ```postgresql
+/// create view list_games as select
+///     game.id,
+///     game.leetx_id,
+///     game.name,
+///     game.version,
+///     game.type,
+///     game.hash,
+///     game.description,
+///     game.nsfw,
+///     game.banner_rel_path,
+///     array_remove(array_agg(distinct genre.name), null) genres,
+///     array_remove(array_agg(distinct tag.name), null) tags,
+///     array_remove(array_agg(distinct language.name), null) languages
+///   from game
+///   left outer join game_genre on game.id = game_genre.game_id
+///   left outer join game_tag on game.id = game_tag.game_id
+///   left outer join game_language on game.id = game_language.game_id
+///   left outer join genre on genre.id = game_genre.genre_id
+///   left outer join tag on tag.id = game_tag.tag_id
+///   left outer join language on language.id = game_language.language_id
+///   group by (game.id)
+///   order by game.leetx_id desc
+/// ```
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ListGames {
     /// Includes all fields from [Game](Game).
@@ -177,6 +194,10 @@ impl std::ops::DerefMut for ListGames {
     }
 }
 
+pub trait Junction2: Schema {
+    fn new(first: usize, second: usize) -> Self;
+}
+
 /// Table: game_language
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct GameLanguage {
@@ -189,6 +210,15 @@ pub struct GameLanguage {
 impl Schema for GameLanguage {
     fn table() -> &'static str {
         "game_language"
+    }
+}
+
+impl Junction2 for GameLanguage {
+    fn new(first: usize, second: usize) -> Self {
+        Self {
+            game_id: first,
+            language_id: second,
+        }
     }
 }
 
@@ -207,6 +237,15 @@ impl Schema for GameGenre {
     }
 }
 
+impl Junction2 for GameGenre {
+    fn new(first: usize, second: usize) -> Self {
+        Self {
+            game_id: first,
+            genre_id: second,
+        }
+    }
+}
+
 /// Table: game_tag
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct GameTag {
@@ -219,5 +258,14 @@ pub struct GameTag {
 impl Schema for GameTag {
     fn table() -> &'static str {
         "game_tag"
+    }
+}
+
+impl Junction2 for GameTag {
+    fn new(first: usize, second: usize) -> Self {
+        Self {
+            game_id: first,
+            tag_id: second,
+        }
     }
 }

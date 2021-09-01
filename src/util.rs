@@ -11,6 +11,9 @@ pub enum ChadError {
     #[error("HTTP Error: {0}")]
     HttpError(#[from] reqwest::Error),
 
+    #[error("Database Error: {0}")]
+    DatabaseError(u16),
+
     #[error("Message: {0}")]
     Message(String),
 
