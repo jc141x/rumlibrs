@@ -248,3 +248,14 @@ impl Into<String> for ListTags {
         self.tag
     }
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TestAuth {
+    id: usize,
+}
+
+impl Table for TestAuth {
+    fn table() -> &'static str {
+        "test_auth"
+    }
+}

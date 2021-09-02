@@ -221,6 +221,12 @@ impl DatabaseFetcher {
         }
     }
 
+    pub async fn is_admin(&self) -> Result<bool, ChadError> {
+        let result: Vec<table::TestAuth> =
+            self.from::<table::TestAuth>().select("*").json().await?;
+        Ok(result.len() > 0)
+    }
+
     /// Upsert a row into a table
     pub async fn upsert<T: table::Table + Serialize>(&self, item: &T) -> Result<(), ChadError> {
         self.from::<T>()
@@ -369,8 +375,12 @@ mod tests {
     async fn test_add_game_remove_languages_and_remove() {
         use table;
 
+        let database = DatabaseFetcher::default();
+        assert_eq!(database.is_admin().await.unwrap(), false);
+
         if let Ok(key) = std::env::var("SUPABASE_SECRET_KEY") {
             let database = DatabaseFetcher::new(SUPABASE_ENDPOINT, &key);
+            assert_eq!(database.is_admin().await.unwrap(), true);
 
             let game = table::Game {
                 id: 1337,
