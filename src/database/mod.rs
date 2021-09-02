@@ -1,16 +1,11 @@
-pub mod schema;
-pub use schema::ListGames as Game;
+pub mod table;
+pub use table::ListGames as Game;
 
 use crate::util::ChadError;
 use async_trait::async_trait;
-use futures::future::try_join_all;
 use futures::try_join;
 use postgrest::Postgrest;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::json;
-use std::collections::HashMap;
-
-use self::schema::Schema;
 
 /// johncena141 supabase PostgREST endpoint
 pub const SUPABASE_ENDPOINT: &'static str = "https://bkftwbhopivmrgzcagus.supabase.co/rest/v1";
@@ -93,7 +88,7 @@ impl BuilderExt for postgrest::Builder {
         if res.status().is_success() {
             Ok(res)
         } else {
-            Err(ChadError::DatabaseError(res.status().as_u16()))
+            Err(ChadError::DatabaseError(res.status().as_u16().into()))
         }
     }
 
@@ -122,14 +117,14 @@ impl DatabaseFetcher {
     /// ```rust
     /// # use chad_rs::database::DatabaseFetcher;
     /// use chad_rs::database::BuilderExt;
-    /// use chad_rs::database::schema;
+    /// use chad_rs::database::table;
     ///
     /// # tokio_test::block_on(async {
     /// # let database = DatabaseFetcher::default();
-    /// let genres: Vec<schema::Genre> = database.from::<schema::Genre>().json().await.unwrap();
+    /// let genres: Vec<table::ListGenres> = database.from::<table::ListGenres>().json().await.unwrap();
     /// # });
     /// ```
-    pub fn from<T: schema::Schema + DeserializeOwned>(&self) -> postgrest::Builder {
+    pub fn from<T: table::Table>(&self) -> postgrest::Builder {
         self.client.from(T::table())
     }
 
@@ -137,15 +132,15 @@ impl DatabaseFetcher {
     ///
     /// ```rust
     /// # use chad_rs::database::DatabaseFetcher;
-    /// use chad_rs::database::schema;
+    /// use chad_rs::database::table;
     ///
     /// # tokio_test::block_on(async {
     /// # let database = DatabaseFetcher::default();
-    /// let games: Vec<schema::Game> = database.list_table().await.unwrap();
-    /// let languages: Vec<String> = database.list_table::<schema::Language>().await.unwrap().into_iter().map(|l| l.into()).collect();
+    /// let games: Vec<table::Game> = database.list_table().await.unwrap();
+    /// let languages: Vec<String> = database.list_table::<table::ListLanguages>().await.unwrap().into_iter().map(|l| l.into()).collect();
     /// # });
     /// ```
-    pub async fn list_table<T: schema::Schema + DeserializeOwned>(
+    pub async fn list_table<T: table::Table + DeserializeOwned>(
         &self,
     ) -> Result<Vec<T>, ChadError> {
         self.from::<T>().select("*").json().await
@@ -172,7 +167,7 @@ impl DatabaseFetcher {
     /// ```
     pub async fn get_games(&self, opts: &GetGamesOpts) -> Result<Vec<Game>, ChadError> {
         let mut builder = self
-            .from::<schema::ListGames>()
+            .from::<table::ListGames>()
             .select("*")
             .range(opts.page_number, opts.page_number + opts.page_size - 1);
 
@@ -198,23 +193,6 @@ impl DatabaseFetcher {
         builder.json().await
     }
 
-    /// Gets a list of items from the given table name. For available table names, see
-    /// [ItemTable](ItemTable).
-    ///
-    /// ```rust
-    /// use chad_rs::database::ItemTable;
-    /// # use chad_rs::database::DatabaseFetcher;
-    ///
-    /// # let database = DatabaseFetcher::default();
-    /// # tokio_test::block_on(async {
-    /// let genres = database.get_items(ItemTable::Genres).await;
-    /// # })
-    /// ```
-    #[deprecated(since = "0.2.0", note = "please use `list_table` or `from` instead")]
-    pub async fn get_items(&self, _table_name: impl Into<&str>) -> Result<Vec<String>, ChadError> {
-        unimplemented!()
-    }
-
     /// Find a banner for the given game name
     ///
     /// ```rust
@@ -227,14 +205,14 @@ impl DatabaseFetcher {
     /// ```
     pub async fn find_banner(&self, game_name: &str) -> Result<String, ChadError> {
         let result = self
-            .from::<schema::Game>()
+            .from::<table::Game>()
             .select("*")
             .ilike("name", format!("{}", game_name))
-            .json::<Vec<schema::Game>>()
+            .json::<Vec<table::Game>>()
             .await?;
 
         if let Some(game) = result.get(0) {
-            if let Some(path) = &game.banner_path {
+            if let Some(path) = &game.banner_rel_path {
                 Ok(path.into())
             } else {
                 Err(ChadError::message("No banner found"))
@@ -244,73 +222,78 @@ impl DatabaseFetcher {
         }
     }
 
-    pub async fn upsert<T: schema::Schema + Serialize>(&self, item: &T) -> Result<(), ChadError> {
-        self.client
-            .from(T::table())
+    /// Upsert a row into a table
+    pub async fn upsert<T: table::Table + Serialize>(&self, item: &T) -> Result<(), ChadError> {
+        self.from::<T>()
             .upsert(serde_json::to_string(item)?)
             .run()
             .await?;
         Ok(())
     }
 
-    pub async fn insert<T: schema::Schema, V: Serialize>(&self, item: &V) -> Result<(), ChadError> {
-        self.client
-            .from(T::table())
+    /// Insert a row into a table
+    pub async fn insert<T: table::Table, V: Serialize>(&self, item: &V) -> Result<(), ChadError> {
+        self.from::<T>()
             .insert(serde_json::to_string(item)?)
             .run()
             .await?;
         Ok(())
     }
 
-    pub async fn insert_all<T: schema::Schema, V: Serialize>(
+    /// Upsert all rows into a table
+    pub async fn upsert_all<T: table::Table, V: Serialize>(
         &self,
         items: &[V],
     ) -> Result<(), ChadError> {
-        self.client
-            .from(T::table())
-            .insert(serde_json::to_string(items)?)
-            .run()
-            .await?;
-        Ok(())
-    }
-
-    pub async fn upsert_all<T: schema::Schema, V: Serialize>(
-        &self,
-        items: &[V],
-    ) -> Result<(), ChadError> {
-        self.client
-            .from(T::table())
+        self.from::<T>()
             .upsert(serde_json::to_string(items)?)
             .run()
             .await?;
         Ok(())
     }
 
-    pub async fn add_items<I>(&self, game: &schema::Game, items: &[String]) -> Result<(), ChadError>
+    /// Insert all rows into a table
+    pub async fn insert_all<T: table::Table, V: Serialize>(
+        &self,
+        items: &[V],
+    ) -> Result<(), ChadError> {
+        self.from::<T>()
+            .insert(serde_json::to_string(items)?)
+            .run()
+            .await?;
+        Ok(())
+    }
+
+    /// Add items ([Item](table::Item)) for the given game to the table
+    pub async fn add_items<I>(
+        &self,
+        game_id: &table::GameId,
+        items: &[String],
+    ) -> Result<(), ChadError>
     where
-        I: schema::Item + Serialize,
+        I: table::Item + Serialize,
     {
         let items = items
             .iter()
-            .map(|item| I::new(game, item))
+            .map(|item| I::new(game_id, item))
             .collect::<Vec<_>>();
         self.upsert_all::<I, _>(&items).await
     }
 
+    /// Delete items ([Item](table::Item)) for the given game from the table
     pub async fn delete_items<I>(
         &self,
-        game: &schema::Game,
+        game_id: &table::GameId,
         items: &[String],
     ) -> Result<(), ChadError>
     where
-        I: schema::Item + Serialize,
+        I: table::Item + Serialize,
     {
-        self.client
-            .from(I::table())
+        self.from::<I>()
             .and(format!(
                 "id.eq.{},origin.eq.{},{}.in.({})",
-                game.id,
-                &game.origin,
+                game_id.id,
+                &game_id.origin,
                 I::field_name(),
                 items.join(",")
             ))
@@ -320,52 +303,53 @@ impl DatabaseFetcher {
         Ok(())
     }
 
-    pub async fn add_update_game(
-        &self,
-        game: &schema::Game,
-        languages: &[String],
-        genres: &[String],
-        tags: &[String],
-    ) -> Result<(), ChadError> {
-        self.upsert::<schema::Game>(game).await?;
-
-        try_join!(
-            self.add_items::<schema::Language>(game, languages),
-            self.add_items::<schema::Genre>(game, genres),
-            self.add_items::<schema::Tag>(game, tags),
-        )?;
-
-        Ok(())
-    }
-
-    pub async fn update_game_key(
-        &self,
-        old_origin: &str,
-        old_id: usize,
-        new_origin: &str,
-        new_id: usize,
-    ) -> Result<(), ChadError> {
-        self.client
-            .from(schema::Game::table())
-            .and(format!("id.eq.{},origin.eq.{}", old_id, old_origin))
-            .update(serde_json::to_string(
-                &json!({ "id": new_id, "origin": new_origin }),
-            )?)
+    /// Delete all rows that match with the given game_id from a table
+    pub async fn delete_game_from<T>(&self, game_id: &table::GameId) -> Result<(), ChadError>
+    where
+        T: table::Table,
+    {
+        self.from::<T>()
+            .and(format!(
+                "id.eq.{},origin.eq.{}",
+                game_id.id, &game_id.origin,
+            ))
+            .delete()
             .run()
             .await?;
         Ok(())
     }
 
-    pub async fn find_rows_with<T: schema::Schema + DeserializeOwned>(
+    /// Add or update a game to the database with the given languages, genres and tags
+    pub async fn add_update_game(
         &self,
-        key: &str,
-        value: &str,
-    ) -> Result<Vec<T>, ChadError> {
-        self.from::<T>()
-            .select("*")
-            .eq(key, value)
-            .json::<Vec<T>>()
-            .await
+        game: &table::Game,
+        languages: &[String],
+        genres: &[String],
+        tags: &[String],
+    ) -> Result<(), ChadError> {
+        self.upsert::<table::Game>(game).await?;
+        let key = game.key();
+
+        try_join!(
+            self.add_items::<table::Language>(&key, languages),
+            self.add_items::<table::Genre>(&key, genres),
+            self.add_items::<table::Tag>(&key, tags),
+        )?;
+
+        Ok(())
+    }
+
+    /// Remove a game from the database. Also removes all its entries from language, genre and tag
+    /// tables.
+    ///
+    /// This function does nothing more than call delete_game_from on each database table.
+    pub async fn remove_game(&self, game_id: &table::GameId) -> Result<(), ChadError> {
+        try_join!(
+            self.delete_game_from::<table::Language>(game_id),
+            self.delete_game_from::<table::Genre>(game_id),
+            self.delete_game_from::<table::Tag>(game_id),
+        )?;
+        self.delete_game_from::<table::Game>(game_id).await
     }
 }
 
@@ -383,51 +367,56 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_add_game_remove_languages() {
-        use schema;
+    async fn test_add_game_remove_languages_and_remove() {
+        use table;
 
-        let database = DatabaseFetcher::new(
-            SUPABASE_ENDPOINT,
-            &std::env::var("SUPABASE_SECRET_KEY").expect("Please set your supabase secret key"),
-        );
+        if let Ok(key) = std::env::var("SUPABASE_SECRET_KEY") {
+            let database = DatabaseFetcher::new(SUPABASE_ENDPOINT, &key);
 
-        let game = schema::Game {
-            id: 1337,
-            name: "Test Game Please Ignore Me".into(),
-            origin: "your mom".into(),
-            description: "I'm testing the insertion of new games into the database".into(),
-            hash: "This is not a valid infohash at all".into(),
-            nsfw: true,
-            type_: "Native".into(),
-            version: "Version".into(),
-            ..Default::default()
-        };
+            let game = table::Game {
+                id: 1337,
+                name: "Hello there".into(),
+                origin: "your mom".into(),
+                description: "I'm testing the insertion of new games into the database".into(),
+                hash: "This is not a valid infohash at all".into(),
+                nsfw: true,
+                type_: "Native".into(),
+                version: "Version".into(),
+                ..Default::default()
+            };
 
-        let languages = &[
-            "Klingon".into(),
-            "Vulcan".into(),
-            "Dothraki".into(),
-            "Trigedasleng".into(),
-        ];
-        let genres = &["Impossible".into(), "Fake".into(), "Test".into()];
-        let tags = &["Send".into(), "Help".into()];
+            let languages = &[
+                "Klingon".into(),
+                "Vulcan".into(),
+                "Dothraki".into(),
+                "Trigedasleng".into(),
+            ];
+            let genres = &["Impossible".into(), "Fake".into(), "Test".into()];
+            let tags = &["Send".into(), "Help".into()];
 
-        database
-            .add_update_game(&game, languages, genres, tags)
-            .await
-            .unwrap();
+            database
+                .add_update_game(&game, languages, genres, tags)
+                .await
+                .unwrap();
 
-        database
-            .delete_items::<schema::Language>(
-                &game,
-                &["Klingon".into(), "Vulcan".into(), "aaa".into()],
-            )
-            .await
-            .unwrap();
+            database
+                .delete_items::<table::Language>(
+                    &game.key(),
+                    &["Klingon".into(), "Vulcan".into(), "aaa".into()],
+                )
+                .await
+                .unwrap();
 
-        database
-            .update_game_key("your mom", 1337, "your dad", 69)
-            .await
-            .unwrap();
+            database.remove_game(&game.key()).await.unwrap();
+            database
+                .remove_game(&table::GameId {
+                    id: 1337,
+                    origin: "leetx".into(),
+                })
+                .await
+                .unwrap();
+        } else {
+            println!("Supabase admin key not set, skipping test")
+        }
     }
 }

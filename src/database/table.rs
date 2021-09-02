@@ -1,18 +1,17 @@
-//! Database schema documentation. The structs in this module match the internal database
+//! Database table documentation. The structs in this module match the internal database
 //! structure.
 
 use serde::{Deserialize, Serialize};
 
-pub trait Schema {
+pub trait Table {
     fn table() -> &'static str;
 }
 
-pub trait Item: Schema {
-    fn new(game: &Game, item: impl Into<String>) -> Self;
+pub trait Item: Table {
+    fn new(game: &GameId, item: impl Into<String>) -> Self;
     fn field_name() -> &'static str;
 }
 
-/// Table: language
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Language {
     pub id: usize,
@@ -20,14 +19,14 @@ pub struct Language {
     pub language: String,
 }
 
-impl Schema for Language {
+impl Table for Language {
     fn table() -> &'static str {
         "language_v2"
     }
 }
 
 impl Item for Language {
-    fn new(game: &Game, item: impl Into<String>) -> Self {
+    fn new(game: &GameId, item: impl Into<String>) -> Self {
         Self {
             id: game.id,
             origin: game.origin.clone(),
@@ -46,7 +45,6 @@ impl Into<String> for Language {
     }
 }
 
-/// Table: genre
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Genre {
     pub id: usize,
@@ -54,14 +52,14 @@ pub struct Genre {
     pub genre: String,
 }
 
-impl Schema for Genre {
+impl Table for Genre {
     fn table() -> &'static str {
         "genre_v2"
     }
 }
 
 impl Item for Genre {
-    fn new(game: &Game, item: impl Into<String>) -> Self {
+    fn new(game: &GameId, item: impl Into<String>) -> Self {
         Self {
             id: game.id,
             origin: game.origin.clone(),
@@ -80,7 +78,6 @@ impl Into<String> for Genre {
     }
 }
 
-/// Table: tag
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Tag {
     pub id: usize,
@@ -88,14 +85,14 @@ pub struct Tag {
     pub tag: String,
 }
 
-impl Schema for Tag {
+impl Table for Tag {
     fn table() -> &'static str {
         "tag_v2"
     }
 }
 
 impl Item for Tag {
-    fn new(game: &Game, item: impl Into<String>) -> Self {
+    fn new(game: &GameId, item: impl Into<String>) -> Self {
         Self {
             id: game.id,
             origin: game.origin.clone(),
@@ -114,7 +111,15 @@ impl Into<String> for Tag {
     }
 }
 
-/// Table: game
+/// Primary key of game table
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct GameId {
+    /// Id of the torrent on the origin (usually 1337x.to right now), PK
+    pub id: usize,
+    /// Origin, where does this game come from, PK
+    pub origin: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Game {
     /// Id of the torrent on the origin (usually 1337x.to right now), PK
@@ -134,48 +139,29 @@ pub struct Game {
     pub description: String,
     /// Whether the game is meant for a mature audience
     pub nsfw: bool,
-    /// Relative path to the banner. Banners can be downloaded from here: `https://gitlab.com/chad-productions/chad_launcher_banners/-/raw/master/<banner_path>`
-    #[serde(rename = "banner_rel_path")]
-    pub banner_path: Option<String>,
+    /// Relative path to the banner. Banners can be downloaded from here: `https://gitlab.com/chad-productions/chad_launcher_banners/-/raw/master/<banner_rel_path>`
+    pub banner_rel_path: Option<String>,
     /// Date on which the game was added to the database (not serialized!)
     #[serde(skip_serializing)]
     pub data_added: Option<String>,
 }
 
-impl Schema for Game {
+impl Game {
+    /// Returns the primary key of the game
+    pub fn key(&self) -> GameId {
+        GameId {
+            id: self.id,
+            origin: self.origin.clone(),
+        }
+    }
+}
+
+impl Table for Game {
     fn table() -> &'static str {
         "game_v2"
     }
 }
 
-/// Table: list_games (view)
-///
-/// Query for reference:
-///
-/// ```postgresql
-/// create view list_games as select
-///     game.id,
-///     game.leetx_id,
-///     game.name,
-///     game.version,
-///     game.type,
-///     game.hash,
-///     game.description,
-///     game.nsfw,
-///     game.banner_rel_path,
-///     array_remove(array_agg(distinct genre.name), null) genres,
-///     array_remove(array_agg(distinct tag.name), null) tags,
-///     array_remove(array_agg(distinct language.name), null) languages
-///   from game
-///   left outer join game_genre on game.id = game_genre.game_id
-///   left outer join game_tag on game.id = game_tag.game_id
-///   left outer join game_language on game.id = game_language.game_id
-///   left outer join genre on genre.id = game_genre.genre_id
-///   left outer join tag on tag.id = game_tag.tag_id
-///   left outer join language on language.id = game_language.language_id
-///   group by (game.id)
-///   order by game.leetx_id desc
-/// ```
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ListGames {
     /// Includes all fields from [Game](Game).
@@ -192,7 +178,7 @@ pub struct ListGames {
     pub languages: Vec<String>,
 }
 
-impl Schema for ListGames {
+impl Table for ListGames {
     fn table() -> &'static str {
         "list_games_v2"
     }
@@ -209,5 +195,56 @@ impl std::ops::Deref for ListGames {
 impl std::ops::DerefMut for ListGames {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.game
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ListLanguages {
+    language: String,
+}
+
+impl Table for ListLanguages {
+    fn table() -> &'static str {
+        "list_languages_v2"
+    }
+}
+
+impl Into<String> for ListLanguages {
+    fn into(self) -> String {
+        self.language
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ListGenres {
+    genre: String,
+}
+
+impl Table for ListGenres {
+    fn table() -> &'static str {
+        "list_genres_v2"
+    }
+}
+
+impl Into<String> for ListGenres {
+    fn into(self) -> String {
+        self.genre
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ListTags {
+    tag: String,
+}
+
+impl Table for ListTags {
+    fn table() -> &'static str {
+        "list_tags_v2"
+    }
+}
+
+impl Into<String> for ListTags {
+    fn into(self) -> String {
+        self.tag
     }
 }
