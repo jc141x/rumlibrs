@@ -154,9 +154,8 @@ impl DatabaseFetcher {
     ///
     /// # let database = DatabaseFetcher::default();
     /// let opts = GetGamesOpts {
-    ///     page_number: 0,
+    ///     page_number: 4,
     ///     page_size: 20,
-    ///     filter_genres: vec!["Action".into()],
     ///     ..Default::default()
     /// };
     /// # tokio_test::block_on(async {
@@ -167,7 +166,7 @@ impl DatabaseFetcher {
     /// ```
     pub async fn get_games(&self, opts: &GetGamesOpts) -> Result<Vec<Game>, ChadError> {
         let mut builder = self.from::<table::ListGames>().select("*").range(
-            opts.page_number,
+            opts.page_number * opts.page_size,
             opts.page_number * opts.page_size + opts.page_size - 1,
         );
 
