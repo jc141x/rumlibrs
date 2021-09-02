@@ -169,7 +169,7 @@ impl DatabaseFetcher {
         let mut builder = self
             .from::<table::ListGames>()
             .select("*")
-            .range(opts.page_number, (opts.page_number - 1) * opts.page_size);
+            .range(opts.page_number, opts.page_number * opts.page_size);
 
         if !opts.filter_languages.is_empty() {
             builder = builder.ov(
