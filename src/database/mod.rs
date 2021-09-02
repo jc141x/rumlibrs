@@ -156,20 +156,20 @@ impl DatabaseFetcher {
     /// let opts = GetGamesOpts {
     ///     page_number: 0,
     ///     page_size: 20,
-    ///     filter_languages: vec!["Latin".into(), "Dutch".into()],
-    ///     filter_genres: vec!["Action".into(), "Adventure".into()],
+    ///     filter_genres: vec!["Action".into()],
     ///     ..Default::default()
     /// };
     /// # tokio_test::block_on(async {
     /// let res = database.get_games(&opts).await.unwrap();
+    /// assert_eq!(res.len(), 20);
     /// #    println!("{:#?}", res);
     /// # });
     /// ```
     pub async fn get_games(&self, opts: &GetGamesOpts) -> Result<Vec<Game>, ChadError> {
-        let mut builder = self
-            .from::<table::ListGames>()
-            .select("*")
-            .range(opts.page_number, opts.page_number * opts.page_size);
+        let mut builder = self.from::<table::ListGames>().select("*").range(
+            opts.page_number,
+            opts.page_number * opts.page_size + opts.page_size - 1,
+        );
 
         if !opts.filter_languages.is_empty() {
             builder = builder.ov(
