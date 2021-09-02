@@ -1,15 +1,9 @@
-use crate::{download::TorrentClientConfig, util::ChadError};
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+#[cfg(feature = "download")]
+use crate::download::{TorrentClientConfig, TorrentConfig};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TorrentConfig {
-    /// Map of torrent clients
-    pub clients: HashMap<String, TorrentClientConfig>,
-}
+use crate::util::ChadError;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 /// Configuration file of Chad Launcher
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +18,7 @@ pub struct Config {
     /// List of scripts to ignore when scanning the library
     pub script_blacklist: Vec<String>,
     /// Torrent client configuration
+    #[cfg(feature = "download")]
     pub torrent: TorrentConfig,
 }
 
@@ -34,6 +29,7 @@ impl Default for Config {
             library_paths: vec![],
             terminal: "alacritty".into(),
             script_blacklist: vec!["winetricks".into(), "chad.sh".into()],
+            #[cfg(feature = "download")]
             torrent: TorrentConfig::default(),
         }
     }
@@ -100,6 +96,7 @@ impl Config {
         self.terminal = other.terminal;
     }
 
+    #[cfg(feature = "download")]
     pub fn insert_download_client(
         &mut self,
         name: impl Into<String>,
@@ -108,6 +105,7 @@ impl Config {
         self.torrent.clients.insert(name.into(), client_config);
     }
 
+    #[cfg(feature = "download")]
     pub fn remove_download_client(&mut self, name: &str) {
         self.torrent.clients.remove(name);
     }

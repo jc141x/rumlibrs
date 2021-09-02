@@ -38,6 +38,12 @@ pub enum TorrentClientConfig {
     QBittorrent(QBittorrentConfig),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TorrentConfig {
+    /// Map of torrent clients
+    pub clients: HashMap<String, TorrentClientConfig>,
+}
+
 /// Configuration of Deluge
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DelugeConfig {
