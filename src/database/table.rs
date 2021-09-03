@@ -8,28 +8,26 @@ pub trait Table {
 }
 
 pub trait Item: Table {
-    fn new(game: &GameId, item: impl Into<String>) -> Self;
+    fn new(hash: impl Into<String>, item: impl Into<String>) -> Self;
     fn field_name() -> &'static str;
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Language {
-    pub id: usize,
-    pub origin: String,
+    pub hash: String,
     pub language: String,
 }
 
 impl Table for Language {
     fn table() -> &'static str {
-        "language_v2"
+        "language_v3"
     }
 }
 
 impl Item for Language {
-    fn new(game: &GameId, item: impl Into<String>) -> Self {
+    fn new(hash: impl Into<String>, item: impl Into<String>) -> Self {
         Self {
-            id: game.id,
-            origin: game.origin.clone(),
+            hash: hash.into(),
             language: item.into(),
         }
     }
@@ -47,22 +45,20 @@ impl Into<String> for Language {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Genre {
-    pub id: usize,
-    pub origin: String,
+    pub hash: String,
     pub genre: String,
 }
 
 impl Table for Genre {
     fn table() -> &'static str {
-        "genre_v2"
+        "genre_v3"
     }
 }
 
 impl Item for Genre {
-    fn new(game: &GameId, item: impl Into<String>) -> Self {
+    fn new(hash: impl Into<String>, item: impl Into<String>) -> Self {
         Self {
-            id: game.id,
-            origin: game.origin.clone(),
+            hash: hash.into(),
             genre: item.into(),
         }
     }
@@ -80,22 +76,20 @@ impl Into<String> for Genre {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Tag {
-    pub id: usize,
-    pub origin: String,
+    pub hash: String,
     pub tag: String,
 }
 
 impl Table for Tag {
     fn table() -> &'static str {
-        "tag_v2"
+        "tag_v3"
     }
 }
 
 impl Item for Tag {
-    fn new(game: &GameId, item: impl Into<String>) -> Self {
+    fn new(hash: impl Into<String>, item: impl Into<String>) -> Self {
         Self {
-            id: game.id,
-            origin: game.origin.clone(),
+            hash: hash.into(),
             tag: item.into(),
         }
     }
@@ -111,54 +105,28 @@ impl Into<String> for Tag {
     }
 }
 
-/// Primary key of game table
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct GameId {
-    /// Id of the torrent on the origin (usually 1337x.to right now), PK
-    pub id: usize,
-    /// Origin, where does this game come from, PK
-    pub origin: String,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Game {
-    /// Id of the torrent on the origin (usually 1337x.to right now), PK
-    pub id: usize,
-    /// Origin, where does this game come from, PK
-    pub origin: String,
+    /// Infohash of the torrent, PK
+    pub hash: String,
     /// Name of the game
     pub name: String,
     /// Version of the game
     pub version: String,
-    /// Type: Wine or Native
-    #[serde(rename = "type")]
-    pub type_: String,
-    /// Infohash of the torrent
-    pub hash: String,
     /// Description of the game
     pub description: String,
-    /// Whether the game is meant for a mature audience
-    pub nsfw: bool,
     /// Relative path to the banner. Banners can be downloaded from here: `https://gitlab.com/chad-productions/chad_launcher_banners/-/raw/master/<banner_rel_path>`
     pub banner_rel_path: Option<String>,
     /// Date on which the game was added to the database (not serialized!)
     #[serde(skip_serializing)]
     pub data_added: Option<String>,
-}
-
-impl Game {
-    /// Returns the primary key of the game
-    pub fn key(&self) -> GameId {
-        GameId {
-            id: self.id,
-            origin: self.origin.clone(),
-        }
-    }
+    /// Id from 1337x, used for sorting
+    pub leetx_id: usize,
 }
 
 impl Table for Game {
     fn table() -> &'static str {
-        "game_v2"
+        "game_v3"
     }
 }
 
@@ -180,7 +148,7 @@ pub struct ListGames {
 
 impl Table for ListGames {
     fn table() -> &'static str {
-        "list_games_v2"
+        "list_games_v3"
     }
 }
 
@@ -205,7 +173,7 @@ pub struct ListLanguages {
 
 impl Table for ListLanguages {
     fn table() -> &'static str {
-        "list_languages_v2"
+        "list_languages_v3"
     }
 }
 
@@ -222,7 +190,7 @@ pub struct ListGenres {
 
 impl Table for ListGenres {
     fn table() -> &'static str {
-        "list_genres_v2"
+        "list_genres_v3"
     }
 }
 
@@ -239,7 +207,7 @@ pub struct ListTags {
 
 impl Table for ListTags {
     fn table() -> &'static str {
-        "list_tags_v2"
+        "list_tags_v3"
     }
 }
 

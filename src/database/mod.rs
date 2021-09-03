@@ -270,35 +270,26 @@ impl DatabaseFetcher {
     }
 
     /// Add items ([Item](table::Item)) for the given game to the table
-    pub async fn add_items<I>(
-        &self,
-        game_id: &table::GameId,
-        items: &[String],
-    ) -> Result<(), ChadError>
+    pub async fn add_items<I>(&self, hash: &str, items: &[String]) -> Result<(), ChadError>
     where
         I: table::Item + Serialize,
     {
         let items = items
             .iter()
-            .map(|item| I::new(game_id, item))
+            .map(|item| I::new(hash, item))
             .collect::<Vec<_>>();
         self.upsert_all::<I, _>(&items).await
     }
 
     /// Delete items ([Item](table::Item)) for the given game from the table
-    pub async fn delete_items<I>(
-        &self,
-        game_id: &table::GameId,
-        items: &[String],
-    ) -> Result<(), ChadError>
+    pub async fn delete_items<I>(&self, hash: &str, items: &[String]) -> Result<(), ChadError>
     where
         I: table::Item + Serialize,
     {
         self.from::<I>()
             .and(format!(
-                "id.eq.{},origin.eq.{},{}.in.({})",
-                game_id.id,
-                &game_id.origin,
+                "hash.eq.{},{}.in.({})",
+                hash,
                 I::field_name(),
                 items.join(",")
             ))
@@ -309,15 +300,12 @@ impl DatabaseFetcher {
     }
 
     /// Delete all rows that match with the given game_id from a table
-    pub async fn delete_game_from<T>(&self, game_id: &table::GameId) -> Result<(), ChadError>
+    pub async fn delete_game_from<T>(&self, hash: &str) -> Result<(), ChadError>
     where
         T: table::Table,
     {
         self.from::<T>()
-            .and(format!(
-                "id.eq.{},origin.eq.{}",
-                game_id.id, &game_id.origin,
-            ))
+            .and(format!("hash.eq.{}", hash))
             .delete()
             .run()
             .await?;
@@ -333,12 +321,11 @@ impl DatabaseFetcher {
         tags: &[String],
     ) -> Result<(), ChadError> {
         self.upsert::<table::Game>(game).await?;
-        let key = game.key();
 
         try_join!(
-            self.add_items::<table::Language>(&key, languages),
-            self.add_items::<table::Genre>(&key, genres),
-            self.add_items::<table::Tag>(&key, tags),
+            self.add_items::<table::Language>(&game.hash, languages),
+            self.add_items::<table::Genre>(&game.hash, genres),
+            self.add_items::<table::Tag>(&game.hash, tags),
         )?;
 
         Ok(())
@@ -348,13 +335,13 @@ impl DatabaseFetcher {
     /// tables.
     ///
     /// This function does nothing more than call delete_game_from on each database table.
-    pub async fn remove_game(&self, game_id: &table::GameId) -> Result<(), ChadError> {
+    pub async fn remove_game(&self, hash: &str) -> Result<(), ChadError> {
         try_join!(
-            self.delete_game_from::<table::Language>(game_id),
-            self.delete_game_from::<table::Genre>(game_id),
-            self.delete_game_from::<table::Tag>(game_id),
+            self.delete_game_from::<table::Language>(hash),
+            self.delete_game_from::<table::Genre>(hash),
+            self.delete_game_from::<table::Tag>(hash),
         )?;
-        self.delete_game_from::<table::Game>(game_id).await
+        self.delete_game_from::<table::Game>(hash).await
     }
 }
 
@@ -383,13 +370,10 @@ mod tests {
             assert_eq!(database.is_admin().await.unwrap(), true);
 
             let game = table::Game {
-                id: 1337,
+                leetx_id: 1337,
                 name: "Hello there".into(),
-                origin: "your mom".into(),
                 description: "I'm testing the insertion of new games into the database".into(),
                 hash: "This is not a valid infohash at all".into(),
-                nsfw: true,
-                type_: "Native".into(),
                 version: "Version".into(),
                 ..Default::default()
             };
@@ -410,20 +394,13 @@ mod tests {
 
             database
                 .delete_items::<table::Language>(
-                    &game.key(),
+                    &game.hash,
                     &["Klingon".into(), "Vulcan".into(), "aaa".into()],
                 )
                 .await
                 .unwrap();
 
-            database.remove_game(&game.key()).await.unwrap();
-            database
-                .remove_game(&table::GameId {
-                    id: 1337,
-                    origin: "leetx".into(),
-                })
-                .await
-                .unwrap();
+            database.remove_game(&game.hash).await.unwrap();
         } else {
             println!("Supabase admin key not set, skipping test")
         }
