@@ -14,6 +14,9 @@ pub enum ChadError {
     #[error("Database Error: {0}")]
     DatabaseError(DatabaseError),
 
+    #[error("Scrape Error: {0}")]
+    ScrapeError(String),
+
     #[error("Message: {0}")]
     Message(String),
 
@@ -24,6 +27,10 @@ pub enum ChadError {
 impl ChadError {
     pub fn message<T: Into<String>>(message: T) -> Self {
         Self::Message(message.into())
+    }
+
+    pub fn scrape_error<T: Into<String>>(message: T) -> Self {
+        Self::ScrapeError(message.into())
     }
 }
 

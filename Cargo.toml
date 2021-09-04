@@ -22,11 +22,17 @@ enum-kinds = "=0.5.0" # Temporary
 tokio = { version = "1", features = ["full"] }
 tokio-test = "0.4.2"
 async-trait = "0.1"
+async-stream = "0.3"
+scraper = "0.12"
+regex = "1"
+lazy_static = "1.4"
 
 [features]
 default = ["library"]
 chad = ["library", "download"]
 johncena141 = ["library", "database", "download"]
+admin = ["database", "scraping"]
 library = []
 database = []
 download = []
+scraping = []
