@@ -4,7 +4,41 @@ use regex::Regex;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 
-use crate::util::ChadError;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ScrapeError {
+    #[error("HTTP Error: {0}")]
+    HttpError(#[from] reqwest::Error),
+
+    #[error("Url Parse Error: {0}")]
+    UrlError(#[from] url::ParseError),
+
+    #[error("Failed to scrape game: {message} (url: {url})")]
+    Game { message: String, url: reqwest::Url },
+
+    #[error("Failed to scrape page {page}: {message}")]
+    Page { message: String, page: usize },
+
+    #[error("Failed to scrape: {0}")]
+    Other(String),
+}
+
+impl ScrapeError {
+    pub fn game(message: impl Into<String>, url: &reqwest::Url) -> Self {
+        Self::Game {
+            message: message.into(),
+            url: url.clone(),
+        }
+    }
+
+    pub fn page(message: impl Into<String>, page: usize) -> Self {
+        Self::Page {
+            message: message.into(),
+            page,
+        }
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Game {
@@ -59,18 +93,19 @@ impl LeetxScraper {
 
     fn get_pages_try_futures(
         &self,
-    ) -> impl Stream<Item = impl TryFuture<Ok = Vec<String>, Error = ChadError>> {
+        first_page: usize,
+    ) -> impl Stream<Item = impl TryFuture<Ok = Vec<String>, Error = ScrapeError>> {
         let (base_url, uploader) = (self.base_url.clone(), self.uploader.clone());
-        stream::iter(1..).map(move |i| {
-            Self::parse_page(i, base_url.clone(), uploader.clone()) //.unwrap_or_else(|_| Vec::new())
-        })
+        stream::iter(first_page..)
+            .map(move |i| Self::parse_page(i, base_url.clone(), uploader.clone()))
     }
 
     fn get_pages_futures(
         &self,
-    ) -> impl Stream<Item = impl Future<Output = Box<dyn Iterator<Item = Result<String, ChadError>>>>>
+        first_page: usize,
+    ) -> impl Stream<Item = impl Future<Output = Box<dyn Iterator<Item = Result<String, ScrapeError>>>>>
     {
-        self.get_pages_try_futures().map(|future| {
+        self.get_pages_try_futures(first_page).map(|future| {
             future.map_ok_or_else(
                 |err| Box::new(std::iter::once(Err(err))) as Box<dyn Iterator<Item = Result<_, _>>>,
                 |page: Vec<String>| {
@@ -83,20 +118,83 @@ impl LeetxScraper {
 
     fn get_urls_n_pages_buffered(
         &self,
+        first_page: usize,
         num_pages: usize,
-    ) -> impl TryStream<Ok = String, Error = ChadError> {
-        self.get_pages_futures()
+    ) -> impl TryStream<Ok = String, Error = ScrapeError> {
+        self.get_pages_futures(first_page)
             .take(num_pages)
             .buffered(self.page_buf_factor)
             .flat_map(|page| stream::iter(page))
     }
 
-    //fn get_games_n_pages_buffered(&self, n: usize) -> impl TryStream<Ok = Game, Error = ChadError> {
-    fn get_games_n_pages_buffered(&self, n: usize) -> impl Stream<Item = Result<Game, ChadError>> {
+    pub fn get_games_n_pages(
+        &self,
+        first_page: usize,
+        num_pages: usize,
+    ) -> impl Stream<Item = Result<Game, ScrapeError>> {
         let base_url = self.base_url.clone();
-        self.get_urls_n_pages_buffered(n)
+        self.get_urls_n_pages_buffered(first_page, num_pages)
             .map_ok(move |url| Self::parse_game(url, base_url.clone()))
             .try_buffered(self.game_buf_factor)
+    }
+
+    pub async fn collect_games_n_pages(
+        &self,
+        first_page: usize,
+        num_pages: usize,
+    ) -> Vec<Result<Game, ScrapeError>> {
+        self.get_games_n_pages(first_page, num_pages)
+            .collect()
+            .await
+    }
+
+    /// Gets a stream that will yield all games ordered from new to old.
+    ///
+    /// Pages and games will be scraped asynchronously to maximize speed.
+    ///
+    /// Useful for interactively sending events to a GUI whenever a game is scraped.
+    ///
+    /// Note: some results yielded by the stream may be errors. This can either be an error that
+    /// occurred when scraping a single game or when scraping a page. This means that the list of
+    /// returned games might be incomplete in case errors occur.
+    ///
+    /// ```rust
+    /// let leetx_scraper = LeetxScraper::default();
+    ///
+    /// let games_stream = leetx_scraper.get_all_games().await.unwrap();
+    ///
+    /// tokio::pin!(games_stream);
+    ///
+    /// while let Some(item) = games_stream.next().await {
+    ///     match item {
+    ///         Ok(game) => println!("Successfully scraped {:#?}", game.name),
+    ///         Err(err) => println!("An error occurred while scraping: {:#?}", err),
+    ///     }
+    /// }
+    /// ```
+    pub async fn get_all_games(
+        &self,
+    ) -> Result<impl Stream<Item = Result<Game, ScrapeError>>, ScrapeError> {
+        let num_pages = self.get_num_pages().await?;
+        Ok(self.get_games_n_pages(1, num_pages))
+    }
+
+    /// Collect all games into a Vec
+    ///
+    /// Benefits from the same performance characteristics as `get_all_games`, but games are only
+    /// returned when all games are scraped.
+    ///
+    /// Note: some results in the returned vector may be errors. This can either be an error that
+    /// occurred when scraping a single game or when scraping a page. This means that the list of
+    /// returned games might be incomplete in case errors occur.
+    ///
+    /// ```rust
+    /// let leetx_scraper = LeetxScraper::default();
+    ///
+    /// let games: Vec<Result<Game, ScrapeError>> = leetx_scraper.collect_all_games().await.unwrap();
+    /// ```
+    pub async fn collect_all_games(&self) -> Result<Vec<Result<Game, ScrapeError>>, ScrapeError> {
+        Ok(self.get_all_games().await?.collect().await)
     }
 
     fn parse_tags(subtitle: &str) -> Vec<String> {
@@ -116,12 +214,12 @@ impl LeetxScraper {
             .collect()
     }
 
-    fn parse_items(line: &str) -> Result<Vec<String>, ChadError> {
+    fn parse_items(line: &str) -> Result<Vec<String>, ScrapeError> {
         let mut list = line
             .split(":")
             .skip(1)
             .next()
-            .ok_or(ChadError::scrape_error("Failed to parse items list"))?;
+            .ok_or(ScrapeError::Other("items list".into()))?;
         list = list.strip_prefix(" ").unwrap_or(list);
         list = list.strip_suffix("\n").unwrap_or(list);
         Ok(list
@@ -130,26 +228,24 @@ impl LeetxScraper {
             .collect())
     }
 
-    pub async fn parse_game(
-        url: impl std::fmt::Display,
-        base_url: impl std::fmt::Display,
-    ) -> Result<Game, ChadError> {
-        let url = format!("{}{}", base_url, url);
+    async fn parse_game(
+        url: impl Into<String>,
+        base_url: impl Into<String>,
+    ) -> Result<Game, ScrapeError> {
+        //let url = format!("{}{}", base_url, url);
+        let url = reqwest::Url::parse(&base_url.into())?.join(&url.into())?;
 
         lazy_static! {
             static ref RE_ID: Regex = Regex::new(r".*/(\d*)/.*").unwrap();
         }
 
         let id = RE_ID
-            .captures_iter(&url)
+            .captures_iter(url.as_str())
             .next()
             .and_then(|c| c[1].parse::<usize>().ok())
-            .ok_or(ChadError::scrape_error(format!(
-                "Failed to scrape 1337x id from url ({})",
-                &url
-            )))?;
+            .ok_or(ScrapeError::game("1337x id from url", &url))?;
 
-        let page_html = reqwest::get(&url).await?.text().await?;
+        let page_html = reqwest::get(url.clone()).await?.text().await?;
 
         // To prevent cloudflare from fucking my while testing
         //let page_html = include_str!("test_game.html");
@@ -166,10 +262,7 @@ impl LeetxScraper {
             .next()
             .and_then(|e| e.text().next())
             .map(|n| n.strip_suffix(" ").unwrap_or(n))
-            .ok_or(ChadError::scrape_error(format!(
-                "Failed to scrape name ({})",
-                &url
-            )))?;
+            .ok_or(ScrapeError::game("name", &url))?;
 
         lazy_static! {
             static ref SUBTITLE_SELECTOR: Selector =
@@ -181,10 +274,7 @@ impl LeetxScraper {
             .skip(1)
             .next()
             .and_then(|e| e.text().next())
-            .ok_or(ChadError::scrape_error(format!(
-                "Failed to scrape subtitle ({})",
-                &url
-            )))?;
+            .ok_or(ScrapeError::game("subtitle", &url))?;
 
         let version = subtitle.split(" ").next().unwrap_or("unknown");
 
@@ -198,10 +288,7 @@ impl LeetxScraper {
             .select(&HASH_SELECTOR)
             .next()
             .and_then(|e| e.text().next())
-            .ok_or(ChadError::scrape_error(format!(
-                "Failed to scrape hash ({})",
-                &url
-            )))?;
+            .ok_or(ScrapeError::game("hash", &url))?;
 
         lazy_static! {
             static ref SIZE_SELECTOR: Selector =
@@ -213,10 +300,7 @@ impl LeetxScraper {
             .skip(3)
             .next()
             .and_then(|span| span.text().next())
-            .ok_or(ChadError::scrape_error(format!(
-                "Failed to scrape size ({})",
-                &url
-            )))?;
+            .ok_or(ScrapeError::game("size", &url))?;
 
         lazy_static! {
             static ref DESCRIPTION_SELECTOR: Selector = Selector::parse("#description p").unwrap();
@@ -234,10 +318,7 @@ impl LeetxScraper {
                 })
             })
             .next()
-            .ok_or(ChadError::scrape_error(format!(
-                "Failed to game info ({})",
-                &url
-            )))?;
+            .ok_or(ScrapeError::game("info", &url))?;
 
         let mut description_state = false;
         let mut description = String::new();
@@ -269,13 +350,42 @@ impl LeetxScraper {
         })
     }
 
+    async fn get_num_pages(&self) -> Result<usize, ScrapeError> {
+        let page_url = format!("{}/{}-torrents/1/", self.base_url, self.uploader);
+        let page_html = reqwest::get(page_url).await?.text().await?;
+        let document = Html::parse_document(&page_html);
+
+        lazy_static! {
+            static ref LINK_SELECTOR: Selector =
+                Selector::parse("div.pagination li.last a").unwrap();
+        }
+
+        let href = document
+            .select(&LINK_SELECTOR)
+            .next()
+            .map(|l| l.value().attr("href").map(|s| s.to_string()))
+            .flatten()
+            .ok_or(ScrapeError::page("pagination", 1))?;
+
+        lazy_static! {
+            static ref RE_PAGE: Regex = Regex::new(r".*/(\d*)/.*").unwrap();
+        }
+
+        let page = RE_PAGE
+            .captures_iter(&href)
+            .next()
+            .and_then(|c| c[1].parse::<usize>().ok())
+            .ok_or(ScrapeError::page("page number from pagination link", 1))?;
+
+        Ok(page)
+    }
+
     pub async fn parse_page(
         page: usize,
         base_url: impl std::fmt::Display,
         uploader: impl std::fmt::Display,
-    ) -> Result<Vec<String>, ChadError> {
+    ) -> Result<Vec<String>, ScrapeError> {
         let page_url = format!("{}/{}-torrents/{}/", base_url, uploader, page);
-        println!("{}", page_url);
 
         let page_html = reqwest::get(page_url).await?.text().await?;
 
@@ -322,10 +432,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_num_pages() {
+        let leetx_scraper = LeetxScraper::default();
+        println!("{}", leetx_scraper.get_num_pages().await.unwrap());
+    }
+
+    /*
+    #[tokio::test]
     async fn test_get_pages() {
         let leetx_scraper = LeetxScraper::default();
 
-        let games_stream = leetx_scraper.get_games_n_pages_buffered(26);
+        let games_stream = leetx_scraper.get_all_games().await.unwrap();
 
         tokio::pin!(games_stream);
 
@@ -335,5 +452,5 @@ mod tests {
                 Err(err) => println!("{:#?}", err),
             }
         }
-    }
+    }*/
 }

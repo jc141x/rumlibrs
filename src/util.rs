@@ -1,5 +1,8 @@
 use thiserror::Error;
 
+#[cfg(feature = "scraping")]
+use crate::scraper::leetx::ScrapeError;
+
 #[derive(Debug, Error)]
 pub enum ChadError {
     #[error("Json (de)serialization error: {0}")]
@@ -14,8 +17,9 @@ pub enum ChadError {
     #[error("Database Error: {0}")]
     DatabaseError(DatabaseError),
 
+    #[cfg(feature = "scraping")]
     #[error("Scrape Error: {0}")]
-    ScrapeError(String),
+    ScrapeError(ScrapeError),
 
     #[error("Message: {0}")]
     Message(String),
@@ -27,10 +31,6 @@ pub enum ChadError {
 impl ChadError {
     pub fn message<T: Into<String>>(message: T) -> Self {
         Self::Message(message.into())
-    }
-
-    pub fn scrape_error<T: Into<String>>(message: T) -> Self {
-        Self::ScrapeError(message.into())
     }
 }
 
