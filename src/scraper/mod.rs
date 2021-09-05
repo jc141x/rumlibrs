@@ -1,1 +1,3 @@
-mod leetx;
+pub mod leetx;
+
+pub use leetx::LeetxScraper;
