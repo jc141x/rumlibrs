@@ -17,6 +17,8 @@
 //! scraper = []
 //! ```
 
+#[cfg(feature = "banner")]
+pub mod banner;
 pub mod config;
 #[cfg(feature = "database")]
 pub mod database;

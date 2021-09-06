@@ -1,7 +1,7 @@
 pub mod table;
 pub use table::ListGames as Game;
 
-use crate::util::ChadError;
+use crate::{banner::scale_compress_image, util::ChadError};
 use async_trait::async_trait;
 use futures::try_join;
 use postgrest::Postgrest;
@@ -347,10 +347,10 @@ impl DatabaseFetcher {
         self.delete_game_from::<table::Game>(hash).await
     }
 
-    /// Upload a banner to the database
-    pub async fn upload_banner(&self, hash: &str, banner_path: &Path) -> Result<(), ChadError> {
-        let banner = std::fs::read(banner_path)?;
+    /// Upload a banner to the database after scaling it to the correct resolution
+    pub async fn upload_banner(&self, hash: &str, banner: Vec<u8>) -> Result<(), ChadError> {
         let client = reqwest::Client::new();
+        let banner = scale_compress_image(banner)?;
         client
             .post(format!(
                 "https://bkftwbhopivmrgzcagus.supabase.co/storage/v1/object/banners/{}.png",
@@ -364,6 +364,26 @@ impl DatabaseFetcher {
             .await?;
 
         Ok(())
+    }
+
+    /// Upload a banner from local file to the database
+    pub async fn upload_banner_from_file(
+        &self,
+        hash: &str,
+        banner_path: &Path,
+    ) -> Result<(), ChadError> {
+        let banner = std::fs::read(banner_path)?;
+        self.upload_banner(hash, banner).await
+    }
+
+    /// Upload a banner from HTTP url to the database
+    pub async fn upload_banner_from_url(
+        &self,
+        hash: &str,
+        url: impl reqwest::IntoUrl,
+    ) -> Result<(), ChadError> {
+        let banner = reqwest::get(url).await?.bytes().await?.to_vec();
+        self.upload_banner(hash, banner).await
     }
 }
 
@@ -434,11 +454,13 @@ mod tests {
             let database = DatabaseFetcher::new(SUPABASE_ENDPOINT, &key);
             assert_eq!(database.is_admin().await.unwrap(), true);
 
-            let mut path = dirs::home_dir().unwrap();
-            path.push("Documents/Development/rust/chad-rs/banner.png");
+            database
+                .upload_banner_from_file("test", &std::path::PathBuf::from("banner.png"))
+                .await
+                .unwrap();
 
             database
-                .upload_banner("test", &std::path::PathBuf::from("banner.png"))
+                .upload_banner_from_url("test2", "https://cdn2.steamgriddb.com/file/sgdb-cdn/grid/e353b610e9ce20f963b4cca5da565605.jpg")
                 .await
                 .unwrap();
         } else {

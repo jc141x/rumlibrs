@@ -27,13 +27,16 @@ scraper = "0.12"
 regex = "1"
 lazy_static = "1.4"
 url = "2"
+magick_rust = "0.15"
+steamgriddb_api = "0.1"
 
 [features]
 default = ["library"]
 chad = ["library", "download"]
 johncena141 = ["library", "database", "download"]
-admin = ["database", "scraping"]
+admin = ["database", "scraping", "banner"]
 library = []
 database = []
 download = []
 scraping = []
+banner = []

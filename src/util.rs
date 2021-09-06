@@ -34,6 +34,12 @@ impl ChadError {
     }
 }
 
+impl From<&str> for ChadError {
+    fn from(message: &str) -> Self {
+        Self::message(message)
+    }
+}
+
 #[derive(Debug, Error)]
 pub struct DatabaseError(u16);
 
