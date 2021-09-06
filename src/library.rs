@@ -199,7 +199,12 @@ impl LibraryFetcher {
                             // Filter out any errors
                             .filter_map(|e| e.ok())
                             // Find all directories
-                            .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                            .filter(|e| {
+                                std::fs::metadata(e.path())
+                                    .map(|m| m.file_type())
+                                    .map(|t| t.is_dir())
+                                    .unwrap_or(false)
+                            })
                             // Filter out ignored directories
                             .filter(|e| {
                                 e.path()
