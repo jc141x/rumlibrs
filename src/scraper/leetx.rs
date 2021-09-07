@@ -103,14 +103,18 @@ impl LeetxScraper {
     fn get_pages_futures(
         &self,
         first_page: usize,
-    ) -> impl Stream<Item = impl Future<Output = Box<dyn Iterator<Item = Result<String, ScrapeError>>>>>
-    {
+    ) -> impl Stream<
+        Item = impl Future<Output = Box<dyn Iterator<Item = Result<String, ScrapeError>> + Send>>,
+    > + Send {
         self.get_pages_try_futures(first_page).map(|future| {
             future.map_ok_or_else(
-                |err| Box::new(std::iter::once(Err(err))) as Box<dyn Iterator<Item = Result<_, _>>>,
+                |err| {
+                    Box::new(std::iter::once(Err(err)))
+                        as Box<dyn Iterator<Item = Result<_, _>> + Send>
+                },
                 |page: Vec<String>| {
                     Box::new(page.into_iter().map(|url| Ok(url)))
-                        as Box<dyn Iterator<Item = Result<_, _>>>
+                        as Box<dyn Iterator<Item = Result<_, _>> + Send>
                 },
             )
         })
