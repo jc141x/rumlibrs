@@ -105,7 +105,7 @@ impl Into<String> for Tag {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Game {
     /// Infohash of the torrent, PK
     pub hash: String,
@@ -130,7 +130,7 @@ impl Table for Game {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ListGames {
     /// Includes all fields from [Game](Game).
     /// Flattened during (de)serialization (see [Struct
