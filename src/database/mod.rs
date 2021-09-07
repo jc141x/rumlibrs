@@ -54,9 +54,9 @@ impl Into<&str> for ItemTable {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct GetGamesOpts {
     /// Page number starting from 0
-    pub page_number: usize,
+    pub page_number: Option<usize>,
     /// Amount of games on each page
-    pub page_size: usize,
+    pub page_size: Option<usize>,
 
     /// Language filter
     pub filter_languages: Vec<String>,
@@ -168,10 +168,14 @@ impl DatabaseFetcher {
     /// # });
     /// ```
     pub async fn get_games(&self, opts: &GetGamesOpts) -> Result<Vec<Game>, ChadError> {
-        let mut builder = self.from::<table::ListGames>().select("*").range(
-            opts.page_number * opts.page_size,
-            opts.page_number * opts.page_size + opts.page_size - 1,
-        );
+        let mut builder = self.from::<table::ListGames>().select("*");
+
+        if let (Some(page_number), Some(page_size)) = (opts.page_number, opts.page_size) {
+            builder = builder.range(
+                page_number * page_size,
+                page_number * page_size + page_size - 1,
+            );
+        }
 
         if !opts.filter_languages.is_empty() {
             builder = builder.ov(
