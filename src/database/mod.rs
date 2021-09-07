@@ -1,11 +1,12 @@
 pub mod table;
 pub use table::ListGames as Game;
 
-use crate::util::ChadError;
+use crate::{banner::scale_compress_image, util::ChadError};
 use async_trait::async_trait;
 use futures::try_join;
 use postgrest::Postgrest;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::path::Path;
 
 /// johncena141 supabase PostgREST endpoint
 pub const SUPABASE_ENDPOINT: &'static str = "https://bkftwbhopivmrgzcagus.supabase.co/rest/v1";
@@ -69,6 +70,7 @@ pub struct GetGamesOpts {
 }
 
 pub struct DatabaseFetcher {
+    api_key: String,
     client: Postgrest,
 }
 
@@ -104,6 +106,7 @@ impl DatabaseFetcher {
             client: Postgrest::new(endpoint)
                 .insert_header("apikey", api_key)
                 .insert_header("Authorization", format!("Bearer {}", api_key)),
+            api_key: api_key.into(),
         }
     }
 
@@ -343,6 +346,45 @@ impl DatabaseFetcher {
         )?;
         self.delete_game_from::<table::Game>(hash).await
     }
+
+    /// Upload a banner to the database after scaling it to the correct resolution
+    pub async fn upload_banner(&self, hash: &str, banner: Vec<u8>) -> Result<(), ChadError> {
+        let client = reqwest::Client::new();
+        let banner = scale_compress_image(banner)?;
+        client
+            .post(format!(
+                "https://bkftwbhopivmrgzcagus.supabase.co/storage/v1/object/banners/{}.png",
+                hash
+            ))
+            .bearer_auth(&self.api_key)
+            .header("x-upsert", "true")
+            .header("content-type", "image/png")
+            .body(banner)
+            .send()
+            .await?;
+
+        Ok(())
+    }
+
+    /// Upload a banner from local file to the database
+    pub async fn upload_banner_from_file(
+        &self,
+        hash: &str,
+        banner_path: &Path,
+    ) -> Result<(), ChadError> {
+        let banner = std::fs::read(banner_path)?;
+        self.upload_banner(hash, banner).await
+    }
+
+    /// Upload a banner from HTTP url to the database
+    pub async fn upload_banner_from_url(
+        &self,
+        hash: &str,
+        url: impl reqwest::IntoUrl,
+    ) -> Result<(), ChadError> {
+        let banner = reqwest::get(url).await?.bytes().await?.to_vec();
+        self.upload_banner(hash, banner).await
+    }
 }
 
 /// Returns a magnet link for the given game with the trackers in [TRACKERS](TRACKERS).
@@ -401,6 +443,26 @@ mod tests {
                 .unwrap();
 
             database.remove_game(&game.hash).await.unwrap();
+        } else {
+            println!("Supabase admin key not set, skipping test")
+        }
+    }
+
+    #[tokio::test]
+    async fn test_upload_banner() {
+        if let Ok(key) = std::env::var("SUPABASE_SECRET_KEY") {
+            let database = DatabaseFetcher::new(SUPABASE_ENDPOINT, &key);
+            assert_eq!(database.is_admin().await.unwrap(), true);
+
+            database
+                .upload_banner_from_file("test", &std::path::PathBuf::from("banner.png"))
+                .await
+                .unwrap();
+
+            database
+                .upload_banner_from_url("test2", "https://cdn2.steamgriddb.com/file/sgdb-cdn/grid/e353b610e9ce20f963b4cca5da565605.jpg")
+                .await
+                .unwrap();
         } else {
             println!("Supabase admin key not set, skipping test")
         }
