@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 #[cfg(feature = "database")]
 use crate::database;
 use futures::prelude::*;
@@ -57,11 +59,11 @@ pub struct Game {
     /// Size
     pub size: String,
     /// List of genres
-    pub genres: Vec<String>,
+    pub genres: HashSet<String>,
     /// List of tags
-    pub tags: Vec<String>,
+    pub tags: HashSet<String>,
     /// List of languages
-    pub languages: Vec<String>,
+    pub languages: HashSet<String>,
 }
 
 impl Into<database::Game> for Game {
@@ -222,7 +224,7 @@ impl LeetxScraper {
         Ok(self.get_all_games().await?.collect().await)
     }
 
-    fn parse_tags(subtitle: &str) -> Vec<String> {
+    fn parse_tags(subtitle: &str) -> HashSet<String> {
         lazy_static! {
             static ref RE_TAGS: Regex = Regex::new(r"\[(.*?)\]").unwrap();
         }
@@ -239,7 +241,7 @@ impl LeetxScraper {
             .collect()
     }
 
-    fn parse_items(line: &str) -> Result<Vec<String>, ScrapeError> {
+    fn parse_items(line: &str) -> Result<HashSet<String>, ScrapeError> {
         let mut list = line
             .split(":")
             .skip(1)
@@ -347,8 +349,8 @@ impl LeetxScraper {
 
         let mut description_state = false;
         let mut description = String::new();
-        let mut genres: Vec<String> = Vec::new();
-        let mut languages: Vec<String> = Vec::new();
+        let mut genres: HashSet<String> = HashSet::new();
+        let mut languages: HashSet<String> = HashSet::new();
 
         for text in info_box.text() {
             if description_state {
