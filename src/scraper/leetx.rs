@@ -1,3 +1,5 @@
+#[cfg(feature = "database")]
+use crate::database;
 use futures::prelude::*;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -60,6 +62,25 @@ pub struct Game {
     pub tags: Vec<String>,
     /// List of languages
     pub languages: Vec<String>,
+}
+
+impl Into<database::Game> for Game {
+    fn into(self) -> database::Game {
+        database::Game {
+            game: database::table::Game {
+                hash: self.hash,
+                name: self.name,
+                version: self.version,
+                description: self.description,
+                banner_rel_path: None,
+                data_added: None,
+                leetx_id: self.id,
+            },
+            genres: self.genres,
+            tags: self.tags,
+            languages: self.languages,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
