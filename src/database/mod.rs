@@ -426,7 +426,7 @@ mod tests {
                 name: "Hello there".into(),
                 description: "I'm testing the insertion of new games into the database".into(),
                 hash: "This is not a valid infohash at all".into(),
-                version: "Version".into(),
+                version: Some("Version".into()),
                 ..Default::default()
             };
 
@@ -477,4 +477,30 @@ mod tests {
             println!("Supabase admin key not set, skipping test")
         }
     }
+
+    /*
+    #[tokio::test]
+    async fn test_migrate_banners() {
+        if let Ok(key) = std::env::var("SUPABASE_SECRET_KEY") {
+            let database = DatabaseFetcher::new(SUPABASE_ENDPOINT, &key);
+            assert_eq!(database.is_admin().await.unwrap(), true);
+
+            for game in database
+                .get_games(&GetGamesOpts::default())
+                .await
+                .unwrap()
+                .into_iter()
+            {
+                if let Some(path) = &game.banner_rel_path {
+                    println!("{}", path);
+                    let _ = database
+                        .upload_banner_from_url(&game.hash, format!("https://gitlab.com/chad-productions/chad_launcher_banners/-/raw/master/{}", path))
+                        .await;
+                }
+            }
+        } else {
+            println!("Supabase admin key not set, skipping test")
+        }
+    }
+    */
 }
