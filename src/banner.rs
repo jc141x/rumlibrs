@@ -7,58 +7,76 @@ use steamgriddb_api::{
 use crate::util::ChadError;
 
 pub struct BannerFetcher {
-    client: Client,
+    key: String,
 }
 
 impl BannerFetcher {
     pub fn new(steamgriddb_key: &str) -> Self {
         Self {
-            client: Client::new(steamgriddb_key),
+            key: steamgriddb_key.into(),
         }
     }
 
     async fn get_images(
-        &self,
         game_id: usize,
+        key: impl Into<String>,
     ) -> Result<Vec<steamgriddb_api::images::Image>, ChadError> {
         let mut parameters = GridQueryParameters::default();
         parameters.dimentions = Some(&[GridDimentions::D460x215, GridDimentions::D920x430]);
         let query = QueryType::Grid(Some(parameters));
-        self.client
+        Client::new(key)
             .get_images_for_id(game_id, &query)
             .map_err(|_| ChadError::message("Failed to find images"))
             .await
     }
 
+    fn get_game_try_futures(
+        &self,
+        games: Vec<steamgriddb_api::search::SearchResult>,
+    ) -> impl Stream<Item = impl TryFuture<Ok = Vec<steamgriddb_api::images::Image>, Error = ChadError>>
+    {
+        let key = self.key.clone();
+        stream::iter(games).map(move |game| Self::get_images(game.id, key.clone()))
+    }
+
+    fn get_game_futures(
+        &self,
+        games: Vec<steamgriddb_api::search::SearchResult>,
+    ) -> impl Stream<
+        Item = impl Future<
+            Output = Box<
+                dyn Iterator<Item = Result<steamgriddb_api::images::Image, ChadError>> + Send,
+            >,
+        >,
+    > {
+        self.get_game_try_futures(games).map(|future| {
+            future.map_ok_or_else(
+                |err| {
+                    Box::new(std::iter::once(Err(err)))
+                        as Box<
+                            dyn Iterator<Item = Result<steamgriddb_api::images::Image, ChadError>>
+                                + Send,
+                        >
+                },
+                |page: Vec<steamgriddb_api::images::Image>| {
+                    Box::new(page.into_iter().map(|url| Ok(url)))
+                        as Box<
+                            dyn Iterator<Item = Result<steamgriddb_api::images::Image, ChadError>>
+                                + Send,
+                        >
+                },
+            )
+        })
+    }
+
     pub async fn find_images(&self, game_name: &str) -> Result<Vec<String>, ChadError> {
-        let games = self
-            .client
+        let games = Client::new(&self.key)
             .search(game_name)
             .await
             .map_err(|_| ChadError::message("Failed to search game"))?;
 
-        let results: Vec<_> = stream::iter(games)
-            .map(|game| self.get_images(game.id))
-            .map(|future| {
-                future.map_ok_or_else(
-                    |err| {
-                        Box::new(std::iter::once(Err(err)))
-                            as Box<
-                                dyn Iterator<
-                                        Item = Result<steamgriddb_api::images::Image, ChadError>,
-                                    > + Send,
-                            >
-                    },
-                    |page: Vec<steamgriddb_api::images::Image>| {
-                        Box::new(page.into_iter().map(|url| Ok(url)))
-                            as Box<
-                                dyn Iterator<
-                                        Item = Result<steamgriddb_api::images::Image, ChadError>,
-                                    > + Send,
-                            >
-                    },
-                )
-            })
+        let results: Vec<_> = self
+            .get_game_futures(games)
             .buffered(5)
             .flat_map(|game| stream::iter(game))
             .collect()
