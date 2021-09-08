@@ -327,6 +327,12 @@ impl DatabaseFetcher {
         genres: &[String],
         tags: &[String],
     ) -> Result<(), ChadError> {
+        try_join!(
+            self.delete_game_from::<table::Language>(&game.hash),
+            self.delete_game_from::<table::Genre>(&game.hash),
+            self.delete_game_from::<table::Tag>(&game.hash),
+        )?;
+
         self.upsert::<table::Game>(game).await?;
 
         try_join!(
