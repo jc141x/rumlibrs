@@ -1,12 +1,16 @@
 pub mod table;
 pub use table::ListGames as Game;
 
-use crate::{banner::scale_compress_image, util::ChadError};
+use crate::util::ChadError;
 use async_trait::async_trait;
 use futures::try_join;
+use magick_rust::{magick_wand_genesis, MagickWand};
 use postgrest::Postgrest;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::path::Path;
+use std::sync::Once;
+
+static START: Once = Once::new();
 
 /// johncena141 supabase PostgREST endpoint
 pub const SUPABASE_ENDPOINT: &'static str = "https://bkftwbhopivmrgzcagus.supabase.co/rest/v1";
@@ -406,6 +410,20 @@ pub fn get_magnet(game: &Game) -> String {
     magnet
 }
 
+pub fn scale_compress_image(image: impl AsRef<[u8]>) -> Result<Vec<u8>, ChadError> {
+    START.call_once(|| {
+        magick_wand_genesis();
+    });
+
+    let wand = MagickWand::new();
+    wand.read_image_blob(image)?;
+    wand.sharpen_image(0., 1.)?;
+    wand.resize_image(460, 215, magick_rust::bindings::FilterType_QuadraticFilter);
+
+    let image = wand.write_image_blob("png")?;
+    Ok(image)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,6 +494,16 @@ mod tests {
         } else {
             println!("Supabase admin key not set, skipping test")
         }
+    }
+
+    #[tokio::test]
+    async fn test_scale_compress() {
+        let banner = std::fs::read("banner.png").unwrap();
+        std::fs::write(
+            "test_scale_banner_out.png",
+            scale_compress_image(banner).unwrap(),
+        )
+        .unwrap();
     }
 
     /*
