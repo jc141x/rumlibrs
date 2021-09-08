@@ -43,13 +43,18 @@ impl BannerFetcher {
                 future.map_ok_or_else(
                     |err| {
                         Box::new(std::iter::once(Err(err)))
-                            as Box<dyn Iterator<Item = Result<_, _>> + Send>
+                            as Box<
+                                dyn Iterator<
+                                        Item = Result<steamgriddb_api::images::Image, ChadError>,
+                                    > + Send,
+                            >
                     },
                     |page: Vec<steamgriddb_api::images::Image>| {
                         Box::new(page.into_iter().map(|url| Ok(url)))
                             as Box<
-                                dyn Iterator<Item = Result<steamgriddb_api::images::Image, _>>
-                                    + Send,
+                                dyn Iterator<
+                                        Item = Result<steamgriddb_api::images::Image, ChadError>,
+                                    > + Send,
                             >
                     },
                 )
