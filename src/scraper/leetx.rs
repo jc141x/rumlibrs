@@ -51,7 +51,7 @@ pub struct Game {
     /// Name of the game
     pub name: String,
     /// Version of the game
-    pub version: String,
+    pub version: Option<String>,
     /// Description of the game
     pub description: String,
     /// Id from 1337x, used for sorting
@@ -303,7 +303,15 @@ impl LeetxScraper {
             .and_then(|e| e.text().next())
             .ok_or(ScrapeError::game("subtitle", &url))?;
 
-        let version = subtitle.split(" ").next().unwrap_or("unknown");
+        let version = if let Some(v) = subtitle.split(" ").next() {
+            if v.contains("[") && v.contains("]") {
+                None
+            } else {
+                Some(v)
+            }
+        } else {
+            None
+        };
 
         let tags = Self::parse_tags(&subtitle);
 
@@ -354,7 +362,7 @@ impl LeetxScraper {
 
         for text in info_box.text() {
             if description_state {
-                description.push_str(&text);
+                description.push_str(&text.strip_prefix(" ").unwrap_or(&text));
             } else if text.contains("Genre:") {
                 genres = Self::parse_items(text)?;
             } else if text.contains("Language:") {
@@ -368,7 +376,7 @@ impl LeetxScraper {
             id,
             name: name.into(),
             hash: hash.into(),
-            version: version.into(),
+            version: version.map(|v| v.into()),
             size: size.into(),
             tags,
             description,

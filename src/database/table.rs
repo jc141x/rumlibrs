@@ -114,7 +114,7 @@ pub struct Game {
     /// Name of the game
     pub name: String,
     /// Version of the game
-    pub version: String,
+    pub version: Option<String>,
     /// Description of the game
     pub description: String,
     /// Relative path to the banner. Banners can be downloaded from here: `https://gitlab.com/chad-productions/chad_launcher_banners/-/raw/master/<banner_rel_path>`
