@@ -153,6 +153,29 @@ impl DatabaseFetcher {
         self.from::<T>().select("*").json().await
     }
 
+    /// Lists a table of items in the database
+    ///
+    /// ```rust
+    /// # use chad_rs::database::DatabaseFetcher;
+    /// use chad_rs::database::table;
+    ///
+    /// # tokio_test::block_on(async {
+    /// # let database = DatabaseFetcher::default();
+    /// let languages: Vec<String> = database.list_items::<table::ListLanguages>().await.unwrap();
+    /// # });
+    /// ```
+    pub async fn list_items<T: table::ItemList + DeserializeOwned>(
+        &self,
+    ) -> Result<Vec<String>, ChadError> {
+        let vec: Vec<T> = self
+            .from::<T>()
+            .select(T::field_name())
+            .order(format!("{}.asc", T::field_name()))
+            .json()
+            .await?;
+        Ok(vec.into_iter().map(|i| i.into()).collect())
+    }
+
     /// Get a list of games from the database
     ///
     /// ```rust

@@ -168,6 +168,10 @@ impl std::ops::DerefMut for ListGames {
     }
 }
 
+pub trait ItemList: Table + Into<String> {
+    fn field_name() -> &'static str;
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ListLanguages {
     language: String,
@@ -176,6 +180,12 @@ pub struct ListLanguages {
 impl Table for ListLanguages {
     fn table() -> &'static str {
         "list_languages_v3"
+    }
+}
+
+impl ItemList for ListLanguages {
+    fn field_name() -> &'static str {
+        "language"
     }
 }
 
@@ -196,6 +206,12 @@ impl Table for ListGenres {
     }
 }
 
+impl ItemList for ListGenres {
+    fn field_name() -> &'static str {
+        "genre"
+    }
+}
+
 impl Into<String> for ListGenres {
     fn into(self) -> String {
         self.genre
@@ -210,6 +226,12 @@ pub struct ListTags {
 impl Table for ListTags {
     fn table() -> &'static str {
         "list_tags_v3"
+    }
+}
+
+impl ItemList for ListTags {
+    fn field_name() -> &'static str {
+        "tag"
     }
 }
 
