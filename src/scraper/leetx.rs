@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 #[cfg(feature = "database")]
 use crate::database;
@@ -59,11 +59,11 @@ pub struct Game {
     /// Size
     pub size: String,
     /// List of genres
-    pub genres: HashSet<String>,
+    pub genres: BTreeSet<String>,
     /// List of tags
-    pub tags: HashSet<String>,
+    pub tags: BTreeSet<String>,
     /// List of languages
-    pub languages: HashSet<String>,
+    pub languages: BTreeSet<String>,
 }
 
 impl Into<database::Game> for Game {
@@ -224,7 +224,7 @@ impl LeetxScraper {
         Ok(self.get_all_games().await?.collect().await)
     }
 
-    fn parse_tags(subtitle: &str) -> HashSet<String> {
+    fn parse_tags(subtitle: &str) -> BTreeSet<String> {
         lazy_static! {
             static ref RE_TAGS: Regex = Regex::new(r"\[(.*?)\]").unwrap();
         }
@@ -241,7 +241,7 @@ impl LeetxScraper {
             .collect()
     }
 
-    fn parse_items(line: &str) -> Result<HashSet<String>, ScrapeError> {
+    fn parse_items(line: &str) -> Result<BTreeSet<String>, ScrapeError> {
         let mut list = line
             .split(":")
             .skip(1)
@@ -357,8 +357,8 @@ impl LeetxScraper {
 
         let mut description_state = false;
         let mut description = String::new();
-        let mut genres: HashSet<String> = HashSet::new();
-        let mut languages: HashSet<String> = HashSet::new();
+        let mut genres: BTreeSet<String> = BTreeSet::new();
+        let mut languages: BTreeSet<String> = BTreeSet::new();
 
         for text in info_box.text() {
             if description_state {

@@ -1,7 +1,7 @@
 //! Database table documentation. The structs in this module match the internal database
 //! structure.
 
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
@@ -141,11 +141,11 @@ pub struct ListGames {
     #[serde(flatten)]
     pub game: Game,
     /// List of genres
-    pub genres: HashSet<String>,
+    pub genres: BTreeSet<String>,
     /// List of tags
-    pub tags: HashSet<String>,
+    pub tags: BTreeSet<String>,
     /// List of languages
-    pub languages: HashSet<String>,
+    pub languages: BTreeSet<String>,
 }
 
 impl Table for ListGames {
