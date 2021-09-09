@@ -4,6 +4,7 @@ pub use table::ListGames as Game;
 use crate::util::ChadError;
 use async_trait::async_trait;
 use futures::try_join;
+#[cfg(feature = "banner")]
 use magick_rust::{magick_wand_genesis, MagickWand};
 use postgrest::Postgrest;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -384,6 +385,7 @@ impl DatabaseFetcher {
         self.delete_game_from::<table::Game>(hash).await
     }
 
+    #[cfg(feature = "banner")]
     /// Upload a banner to the database after scaling it to the correct resolution
     pub async fn upload_banner(&self, hash: &str, banner: Vec<u8>) -> Result<(), ChadError> {
         let client = reqwest::Client::new();
@@ -403,6 +405,7 @@ impl DatabaseFetcher {
         Ok(())
     }
 
+    #[cfg(feature = "banner")]
     /// Upload a banner from local file to the database
     pub async fn upload_banner_from_file(
         &self,
@@ -413,6 +416,7 @@ impl DatabaseFetcher {
         self.upload_banner(hash, banner).await
     }
 
+    #[cfg(feature = "banner")]
     /// Upload a banner from HTTP url to the database
     pub async fn upload_banner_from_url(
         &self,
@@ -433,6 +437,7 @@ pub fn get_magnet(game: &Game) -> String {
     magnet
 }
 
+#[cfg(feature = "banner")]
 pub fn scale_compress_image(image: impl AsRef<[u8]>) -> Result<Vec<u8>, ChadError> {
     START.call_once(|| {
         magick_wand_genesis();
@@ -499,6 +504,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "banner")]
     #[tokio::test]
     async fn test_upload_banner() {
         if let Ok(key) = std::env::var("SUPABASE_SECRET_KEY") {
@@ -519,6 +525,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "banner")]
     #[tokio::test]
     async fn test_scale_compress() {
         let banner = std::fs::read("banner.png").unwrap();
