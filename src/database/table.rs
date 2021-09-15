@@ -22,7 +22,7 @@ pub struct Language {
 
 impl Table for Language {
     fn table() -> &'static str {
-        "language_v3"
+        "language_v4"
     }
 }
 
@@ -53,7 +53,7 @@ pub struct Genre {
 
 impl Table for Genre {
     fn table() -> &'static str {
-        "genre_v3"
+        "genre_v4"
     }
 }
 
@@ -84,7 +84,7 @@ pub struct Tag {
 
 impl Table for Tag {
     fn table() -> &'static str {
-        "tag_v3"
+        "tag_v4"
     }
 }
 
@@ -111,6 +111,8 @@ impl Into<String> for Tag {
 pub struct Game {
     /// Infohash of the torrent, PK
     pub hash: String,
+    /// File to download, PK
+    pub file: String,
     /// Name of the game
     pub name: String,
     /// Version of the game
@@ -128,7 +130,7 @@ pub struct Game {
 
 impl Table for Game {
     fn table() -> &'static str {
-        "game_v3"
+        "game_v4"
     }
 }
 
@@ -150,7 +152,7 @@ pub struct ListGames {
 
 impl Table for ListGames {
     fn table() -> &'static str {
-        "list_games_v3"
+        "list_games_v4"
     }
 }
 
@@ -179,7 +181,7 @@ pub struct ListLanguages {
 
 impl Table for ListLanguages {
     fn table() -> &'static str {
-        "list_languages_v3"
+        "list_languages_v4"
     }
 }
 
@@ -202,7 +204,7 @@ pub struct ListGenres {
 
 impl Table for ListGenres {
     fn table() -> &'static str {
-        "list_genres_v3"
+        "list_genres_v4"
     }
 }
 
@@ -225,7 +227,7 @@ pub struct ListTags {
 
 impl Table for ListTags {
     fn table() -> &'static str {
-        "list_tags_v3"
+        "list_tags_v4"
     }
 }
 

@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 #[cfg(feature = "database")]
 use crate::database;
-use futures::prelude::*;
+use futures::{prelude::*, StreamExt};
 use lazy_static::lazy_static;
 use regex::Regex;
 use scraper::{Html, Selector};
@@ -48,6 +48,8 @@ impl ScrapeError {
 pub struct Game {
     /// Infohash of the torrent
     pub hash: String,
+    /// File to download
+    pub file: String,
     /// Name of the game
     pub name: String,
     /// Version of the game
@@ -71,6 +73,7 @@ impl Into<database::Game> for Game {
         database::Game {
             game: database::table::Game {
                 hash: self.hash,
+                file: self.file,
                 name: self.name,
                 version: self.version,
                 description: self.description,
@@ -161,7 +164,8 @@ impl LeetxScraper {
     ) -> impl Stream<Item = Result<Game, ScrapeError>> {
         let base_url = self.base_url.clone();
         self.get_urls_n_pages_buffered(first_page, num_pages)
-            .map_ok(move |url| Self::parse_game(url, base_url.clone()))
+            .map_ok(move |url| Self::parse_game(url, base_url.clone()).try_flatten_stream())
+            .try_flatten()
             .try_buffered(self.game_buf_factor)
     }
 
@@ -255,10 +259,21 @@ impl LeetxScraper {
             .collect())
     }
 
+    fn parse_games(
+        url: impl Into<String>,
+        base_url: impl Into<String>,
+    ) -> impl TryStream<Ok = impl TryFuture<Ok = Game, Error = ScrapeError>, Error = ScrapeError>
+    {
+        Self::parse_game(url, base_url).try_flatten_stream()
+    }
+
     async fn parse_game(
         url: impl Into<String>,
         base_url: impl Into<String>,
-    ) -> Result<Game, ScrapeError> {
+    ) -> Result<
+        impl TryStream<Ok = impl TryFuture<Ok = Game, Error = ScrapeError>, Error = ScrapeError>,
+        ScrapeError,
+    > {
         //let url = format!("{}{}", base_url, url);
         let url = reqwest::Url::parse(&base_url.into())?.join(&url.into())?;
 
@@ -289,7 +304,8 @@ impl LeetxScraper {
             .next()
             .and_then(|e| e.text().next())
             .map(|n| n.strip_suffix(" ").unwrap_or(n))
-            .ok_or(ScrapeError::game("name", &url))?;
+            .ok_or(ScrapeError::game("name", &url))?
+            .into();
 
         lazy_static! {
             static ref SUBTITLE_SELECTOR: Selector =
@@ -311,7 +327,8 @@ impl LeetxScraper {
             }
         } else {
             None
-        };
+        }
+        .map(|v| v.into());
 
         let tags = Self::parse_tags(&subtitle);
 
@@ -323,7 +340,8 @@ impl LeetxScraper {
             .select(&HASH_SELECTOR)
             .next()
             .and_then(|e| e.text().next())
-            .ok_or(ScrapeError::game("hash", &url))?;
+            .ok_or(ScrapeError::game("hash", &url))?
+            .into();
 
         lazy_static! {
             static ref SIZE_SELECTOR: Selector =
@@ -335,7 +353,8 @@ impl LeetxScraper {
             .skip(3)
             .next()
             .and_then(|span| span.text().next())
-            .ok_or(ScrapeError::game("size", &url))?;
+            .ok_or(ScrapeError::game("size", &url))?
+            .into();
 
         lazy_static! {
             static ref DESCRIPTION_SELECTOR: Selector = Selector::parse("#description p").unwrap();
@@ -372,17 +391,20 @@ impl LeetxScraper {
             }
         }
 
-        Ok(Game {
-            id,
-            name: name.into(),
-            hash: hash.into(),
-            version: version.map(|v| v.into()),
-            size: size.into(),
-            tags,
-            description,
-            genres,
-            languages,
-        })
+        Ok(stream::iter(vec![Ok(async move {
+            Ok(Game {
+                id,
+                name,
+                hash,
+                file: String::new(),
+                version,
+                size,
+                tags,
+                description,
+                genres,
+                languages,
+            })
+        })]))
     }
 
     async fn get_num_pages(&self) -> Result<usize, ScrapeError> {
@@ -463,7 +485,7 @@ mod tests {
         .await
         .unwrap();
 
-        println!("{:#?}", game);
+        //println!("{:#?}", game);
     }
 
     #[tokio::test]
@@ -472,7 +494,6 @@ mod tests {
         println!("{}", leetx_scraper.get_num_pages().await.unwrap());
     }
 
-    /*
     #[tokio::test]
     async fn test_get_pages() {
         let leetx_scraper = LeetxScraper::default();
@@ -487,5 +508,5 @@ mod tests {
                 Err(err) => println!("{:#?}", err),
             }
         }
-    }*/
+    }
 }
