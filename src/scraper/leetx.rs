@@ -3,9 +3,11 @@ use std::collections::BTreeSet;
 #[cfg(feature = "database")]
 use crate::database;
 use futures::{prelude::*, StreamExt};
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 use lazy_static::lazy_static;
 use regex::Regex;
-use scraper::{Html, Selector};
+use scraper::{ElementRef, Html, Selector};
 use serde::{Deserialize, Serialize};
 
 use thiserror::Error;
@@ -268,6 +270,51 @@ impl LeetxScraper {
             .collect())
     }
 
+    fn find_file(element: ElementRef, name: &str) -> Result<(String, String), ScrapeError> {
+        lazy_static! {
+            static ref DIR_SELECTOR: Selector = Selector::parse(".head").unwrap();
+            static ref LI_SELECTOR: Selector = Selector::parse("ul > li").unwrap();
+        }
+
+        // Fuzzywuzzy does not support unicode
+        let name = name.replace(|c: char| !c.is_ascii(), "");
+
+        let dir = element
+            .select(&DIR_SELECTOR)
+            .next()
+            .and_then(|d| d.text().next());
+
+        let mut files: Vec<_> = element
+            .select(&LI_SELECTOR)
+            .filter_map(|li| li.text().next())
+            .filter_map(|t| {
+                let mut split = t.split(" (");
+                if let Some(file) = split.next() {
+                    if let Some(size) = split.next().map(|s| s.strip_suffix(")").unwrap_or(s)) {
+                        let score =
+                            fuzzywuzzy::fuzz::ratio(&file.to_lowercase(), &name.to_lowercase());
+                        Some((score, file, size))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        files.sort_by_key(|(score, _, _)| -(*score as i8));
+        let first = files
+            .first()
+            .ok_or(ScrapeError::Other(format!("no file found for {}", name)))?;
+
+        if let Some(dir) = dir {
+            Ok((format!("{}/{}", dir, first.1), first.2.into()))
+        } else {
+            Ok((first.1.into(), first.2.into()))
+        }
+    }
+
     fn parse_subtitle(subtitle: &str) -> Result<(Option<String>, BTreeSet<String>), ScrapeError> {
         let version = if let Some(v) = subtitle.split(" ").next() {
             if v.contains("[") && v.contains("]") {
@@ -356,7 +403,7 @@ impl LeetxScraper {
                 Selector::parse("#description p.align-center strong").unwrap();
         }
 
-        let name = document
+        let name: String = document
             .select(&NAME_SELECTOR)
             .next()
             .and_then(|e| e.text().next())
@@ -453,23 +500,38 @@ impl LeetxScraper {
             }
         }
 
+        lazy_static! {
+            static ref FILES_SELECTOR: Selector = Selector::parse(".tab-content #files").unwrap();
+        }
+
+        let files_el = document
+            .select(&FILES_SELECTOR)
+            .next()
+            .ok_or(ScrapeError::game("files", &url))?;
+
+        let (file, size) = Self::find_file(files_el, &name).unwrap_or((String::new(), size));
+
         if let Some(collection_games) = collection_games {
             // It's a collection
             Ok(stream::iter(
                 collection_games
                     .into_iter()
                     .map(|res: Result<_, _>| {
-                        res.map(|(name, version, tags)| Game {
-                            id,
-                            name,
-                            hash: hash.clone(),
-                            file: String::new(),
-                            version,
-                            size: size.clone(),
-                            tags,
-                            description: description.clone(),
-                            genres: genres.clone(),
-                            languages: languages.clone(),
+                        res.map(|(name, version, tags)| {
+                            let (file, size) = Self::find_file(files_el, &name)
+                                .unwrap_or((String::new(), size.clone()));
+                            Game {
+                                id,
+                                name,
+                                hash: hash.clone(),
+                                file,
+                                version,
+                                size: size.clone(),
+                                tags,
+                                description: description.clone(),
+                                genres: genres.clone(),
+                                languages: languages.clone(),
+                            }
                         })
                     })
                     .collect::<Vec<_>>(),
@@ -480,7 +542,7 @@ impl LeetxScraper {
                 id,
                 name,
                 hash,
-                file: String::new(),
+                file,
                 version,
                 size,
                 tags,

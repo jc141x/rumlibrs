@@ -28,6 +28,8 @@ lazy_static = "1.4"
 url = "2"
 magick_rust = { version = "0.15", optional = true }
 steamgriddb_api = { version = "0.1", optional = true }
+fuzzy-matcher = { version = "0.3" }
+fuzzywuzzy = "*"
 
 [features]
 default = ["library"]
