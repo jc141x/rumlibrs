@@ -1,4 +1,5 @@
 pub mod table;
+use table::GameKey;
 pub use table::ListGames as Game;
 
 use crate::util::ChadError;
@@ -237,6 +238,7 @@ impl DatabaseFetcher {
     /// let banner = database.find_banner("Minecraft").await;
     /// # });
     /// ```
+    /*
     pub async fn find_banner(&self, game_name: &str) -> Result<String, ChadError> {
         let result = self
             .from::<table::Game>()
@@ -255,6 +257,7 @@ impl DatabaseFetcher {
             Err(ChadError::message("No game found"))
         }
     }
+    */
 
     pub async fn is_admin(&self) -> Result<bool, ChadError> {
         let result: Vec<table::TestAuth> =
@@ -305,26 +308,31 @@ impl DatabaseFetcher {
     }
 
     /// Add items ([Item](table::Item)) for the given game to the table
-    pub async fn add_items<I>(&self, hash: &str, items: &[String]) -> Result<(), ChadError>
+    pub async fn add_items<I>(&self, key: &GameKey<'_>, items: &[String]) -> Result<(), ChadError>
     where
         I: table::Item + Serialize,
     {
         let items = items
             .iter()
-            .map(|item| I::new(hash, item))
+            .map(|item| I::new(key, item))
             .collect::<Vec<_>>();
         self.upsert_all::<I, _>(&items).await
     }
 
     /// Delete items ([Item](table::Item)) for the given game from the table
-    pub async fn delete_items<I>(&self, hash: &str, items: &[String]) -> Result<(), ChadError>
+    pub async fn delete_items<I>(
+        &self,
+        key: &GameKey<'_>,
+        items: &[String],
+    ) -> Result<(), ChadError>
     where
         I: table::Item + Serialize,
     {
         self.from::<I>()
             .and(format!(
-                "hash.eq.{},{}.in.({})",
-                hash,
+                "hash.eq.{},file.eq.{},{}.in.({})",
+                key.hash,
+                key.file,
                 I::field_name(),
                 items.join(",")
             ))
@@ -335,12 +343,12 @@ impl DatabaseFetcher {
     }
 
     /// Delete all rows that match with the given game_id from a table
-    pub async fn delete_game_from<T>(&self, hash: &str) -> Result<(), ChadError>
+    pub async fn delete_game_from<T>(&self, key: &GameKey<'_>) -> Result<(), ChadError>
     where
         T: table::Table,
     {
         self.from::<T>()
-            .and(format!("hash.eq.{}", hash))
+            .and(format!("hash.eq.{},file.eq.{}", key.hash, key.file))
             .delete()
             .run()
             .await?;
@@ -355,18 +363,19 @@ impl DatabaseFetcher {
         genres: &[String],
         tags: &[String],
     ) -> Result<(), ChadError> {
+        let key = game.key();
         try_join!(
-            self.delete_game_from::<table::Language>(&game.hash),
-            self.delete_game_from::<table::Genre>(&game.hash),
-            self.delete_game_from::<table::Tag>(&game.hash),
+            self.delete_game_from::<table::Language>(&key),
+            self.delete_game_from::<table::Genre>(&key),
+            self.delete_game_from::<table::Tag>(&key),
         )?;
 
         self.upsert::<table::Game>(game).await?;
 
         try_join!(
-            self.add_items::<table::Language>(&game.hash, languages),
-            self.add_items::<table::Genre>(&game.hash, genres),
-            self.add_items::<table::Tag>(&game.hash, tags),
+            self.add_items::<table::Language>(&key, languages),
+            self.add_items::<table::Genre>(&key, genres),
+            self.add_items::<table::Tag>(&key, tags),
         )?;
 
         Ok(())
@@ -376,25 +385,37 @@ impl DatabaseFetcher {
     /// tables.
     ///
     /// This function does nothing more than call delete_game_from on each database table.
-    pub async fn remove_game(&self, hash: &str) -> Result<(), ChadError> {
+    pub async fn remove_game(&self, key: &GameKey<'_>) -> Result<(), ChadError> {
         try_join!(
-            self.delete_game_from::<table::Language>(hash),
-            self.delete_game_from::<table::Genre>(hash),
-            self.delete_game_from::<table::Tag>(hash),
+            self.delete_game_from::<table::Language>(&key),
+            self.delete_game_from::<table::Genre>(&key),
+            self.delete_game_from::<table::Tag>(&key),
         )?;
-        self.delete_game_from::<table::Game>(hash).await
+        self.delete_game_from::<table::Game>(&key).await
     }
 
     #[cfg(feature = "banner")]
     /// Upload a banner to the database after scaling it to the correct resolution
-    pub async fn upload_banner(&self, hash: &str, banner: Vec<u8>) -> Result<(), ChadError> {
+    pub async fn upload_banner(
+        &self,
+        hash: &str,
+        banner_index: Option<usize>,
+        banner: Vec<u8>,
+    ) -> Result<(), ChadError> {
         let client = reqwest::Client::new();
         let banner = scale_compress_image(banner)?;
         client
-            .post(format!(
-                "https://bkftwbhopivmrgzcagus.supabase.co/storage/v1/object/banners/{}.png",
-                hash
-            ))
+            .post(if let Some(index) = banner_index {
+                format!(
+                    "https://bkftwbhopivmrgzcagus.supabase.co/storage/v1/object/banners/{}-{}.png",
+                    hash, index,
+                )
+            } else {
+                format!(
+                    "https://bkftwbhopivmrgzcagus.supabase.co/storage/v1/object/banners/{}.png",
+                    hash
+                )
+            })
             .bearer_auth(&self.api_key)
             .header("x-upsert", "true")
             .header("content-type", "image/png")
@@ -410,10 +431,11 @@ impl DatabaseFetcher {
     pub async fn upload_banner_from_file(
         &self,
         hash: &str,
+        banner_index: Option<usize>,
         banner_path: &Path,
     ) -> Result<(), ChadError> {
         let banner = std::fs::read(banner_path)?;
-        self.upload_banner(hash, banner).await
+        self.upload_banner(hash, banner_index, banner).await
     }
 
     #[cfg(feature = "banner")]
@@ -421,10 +443,11 @@ impl DatabaseFetcher {
     pub async fn upload_banner_from_url(
         &self,
         hash: &str,
+        banner_index: Option<usize>,
         url: impl reqwest::IntoUrl,
     ) -> Result<(), ChadError> {
         let banner = reqwest::get(url).await?.bytes().await?.to_vec();
-        self.upload_banner(hash, banner).await
+        self.upload_banner(hash, banner_index, banner).await
     }
 }
 
@@ -472,6 +495,7 @@ mod tests {
                 name: "Hello there".into(),
                 description: "I'm testing the insertion of new games into the database".into(),
                 hash: "This is not a valid infohash at all".into(),
+                file: "Test file".into(),
                 version: Some("Version".into()),
                 ..Default::default()
             };
@@ -492,13 +516,13 @@ mod tests {
 
             database
                 .delete_items::<table::Language>(
-                    &game.hash,
+                    &game.key(),
                     &["Klingon".into(), "Vulcan".into(), "aaa".into()],
                 )
                 .await
                 .unwrap();
 
-            database.remove_game(&game.hash).await.unwrap();
+            database.remove_game(&game.key()).await.unwrap();
         } else {
             println!("Supabase admin key not set, skipping test")
         }
@@ -512,12 +536,12 @@ mod tests {
             assert_eq!(database.is_admin().await.unwrap(), true);
 
             database
-                .upload_banner_from_file("test", &std::path::PathBuf::from("banner.png"))
+                .upload_banner_from_file("test", None, &std::path::PathBuf::from("banner.png"))
                 .await
                 .unwrap();
 
             database
-                .upload_banner_from_url("test2", "https://cdn2.steamgriddb.com/file/sgdb-cdn/grid/e353b610e9ce20f963b4cca5da565605.jpg")
+                .upload_banner_from_url("test2", None, "https://cdn2.steamgriddb.com/file/sgdb-cdn/grid/e353b610e9ce20f963b4cca5da565605.jpg")
                 .await
                 .unwrap();
         } else {

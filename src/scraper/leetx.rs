@@ -2,10 +2,10 @@ use std::collections::BTreeSet;
 
 #[cfg(feature = "database")]
 use crate::database;
-use futures::prelude::*;
+use futures::{prelude::*, StreamExt};
 use lazy_static::lazy_static;
 use regex::Regex;
-use scraper::{Html, Selector};
+use scraper::{ElementRef, Html, Selector};
 use serde::{Deserialize, Serialize};
 
 use thiserror::Error;
@@ -48,6 +48,8 @@ impl ScrapeError {
 pub struct Game {
     /// Infohash of the torrent
     pub hash: String,
+    /// File to download
+    pub file: String,
     /// Name of the game
     pub name: String,
     /// Version of the game
@@ -58,6 +60,8 @@ pub struct Game {
     pub id: usize,
     /// Size
     pub size: String,
+    /// Banner index
+    pub banner_index: Option<usize>,
     /// List of genres
     pub genres: BTreeSet<String>,
     /// List of tags
@@ -71,10 +75,11 @@ impl Into<database::Game> for Game {
         database::Game {
             game: database::table::Game {
                 hash: self.hash,
+                file: self.file,
                 name: self.name,
                 version: self.version,
                 description: self.description,
-                banner_rel_path: None,
+                banner_index: self.banner_index,
                 data_added: None,
                 leetx_id: self.id,
             },
@@ -154,15 +159,25 @@ impl LeetxScraper {
             .flat_map(|page| stream::iter(page))
     }
 
+    pub fn get_games_streams_n_pages(
+        &self,
+        first_page: usize,
+        num_pages: usize,
+    ) -> impl Stream<Item = Result<impl TryStream<Ok = Game, Error = ScrapeError>, ScrapeError>>
+    {
+        let base_url = self.base_url.clone();
+        self.get_urls_n_pages_buffered(first_page, num_pages)
+            .map_ok(move |url| Self::parse_game(url, base_url.clone()))
+            .try_buffered(self.game_buf_factor)
+    }
+
     pub fn get_games_n_pages(
         &self,
         first_page: usize,
         num_pages: usize,
     ) -> impl Stream<Item = Result<Game, ScrapeError>> {
-        let base_url = self.base_url.clone();
-        self.get_urls_n_pages_buffered(first_page, num_pages)
-            .map_ok(move |url| Self::parse_game(url, base_url.clone()))
-            .try_buffered(self.game_buf_factor)
+        self.get_games_streams_n_pages(first_page, num_pages)
+            .try_flatten()
     }
 
     pub async fn collect_games_n_pages(
@@ -255,10 +270,114 @@ impl LeetxScraper {
             .collect())
     }
 
+    fn find_file(element: ElementRef, name: &str) -> Result<(String, String), ScrapeError> {
+        lazy_static! {
+            static ref DIR_SELECTOR: Selector = Selector::parse(".head").unwrap();
+            static ref LI_SELECTOR: Selector = Selector::parse("ul > li").unwrap();
+        }
+
+        // Fuzzywuzzy does not support unicode
+        let name = name.replace(|c: char| !c.is_ascii(), "");
+
+        let dir = element
+            .select(&DIR_SELECTOR)
+            .next()
+            .and_then(|d| d.text().next());
+
+        let mut files: Vec<_> = element
+            .select(&LI_SELECTOR)
+            .filter_map(|li| li.text().next())
+            .filter_map(|t| {
+                let mut split = t.split(" (");
+                if let Some(file) = split.next() {
+                    if let Some(size) = split.next().map(|s| s.strip_suffix(")").unwrap_or(s)) {
+                        let score =
+                            fuzzywuzzy::fuzz::ratio(&file.to_lowercase(), &name.to_lowercase());
+                        Some((score, file, size))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        files.sort_by_key(|(score, _, _)| -(*score as i8));
+        let first = files
+            .first()
+            .ok_or(ScrapeError::Other(format!("no file found for {}", name)))?;
+
+        if let Some(dir) = dir {
+            Ok((format!("{}/{}", dir, first.1), first.2.into()))
+        } else {
+            Ok((first.1.into(), first.2.into()))
+        }
+    }
+
+    fn parse_subtitle(subtitle: &str) -> Result<(Option<String>, BTreeSet<String>), ScrapeError> {
+        let version = if let Some(v) = subtitle.split(" ").next() {
+            if v.contains("[") && v.contains("]") {
+                None
+            } else {
+                Some(v)
+            }
+        } else {
+            None
+        }
+        .map(|v| v.into());
+
+        let tags = Self::parse_tags(&subtitle);
+
+        Ok((version, tags))
+    }
+
+    fn parse_collection_game(
+        line: &str,
+    ) -> Result<Option<(String, Option<String>, BTreeSet<String>)>, ScrapeError> {
+        if !line.contains("[johncena141]") {
+            // Ignore this line
+            return Ok(None);
+        }
+
+        if line.contains(" - ") {
+            // Variant A: e.g. Mount & Blade - 1.011 [MULTi6] [GOG] [GNU/Linux Wine] [johncena141]
+            let mut split = line.split(" - ");
+            let name = split
+                .next()
+                .ok_or(ScrapeError::Other("collection game name".into()))?;
+            let name = name.strip_prefix(" ").unwrap_or(name);
+            let name = name.strip_suffix(" ").unwrap_or(name);
+            let (version, tags) = Self::parse_subtitle(
+                split
+                    .next()
+                    .ok_or(ScrapeError::Other("collection game subtitle".into()))?,
+            )?;
+            Ok(Some((name.into(), version, tags)))
+        } else {
+            if line.contains("[") {
+                // Variant B1: e.g. FINAL FANTASY [Goldberg] [GNU/Linux Wine] [johncena141]
+                let mut split = line.split("[");
+
+                let name = split
+                    .next()
+                    .ok_or(ScrapeError::Other("collection game name".into()))?;
+                let name = name.strip_prefix(" ").unwrap_or(name);
+                let name = name.strip_suffix(" ").unwrap_or(name);
+                let tags = Self::parse_tags(&line);
+
+                Ok(Some((name.into(), None, tags)))
+            } else {
+                // Variant B2: e.g. FINAL FANTASY
+                Ok(Some((line.into(), None, BTreeSet::new())))
+            }
+        }
+    }
+
     async fn parse_game(
         url: impl Into<String>,
         base_url: impl Into<String>,
-    ) -> Result<Game, ScrapeError> {
+    ) -> Result<impl TryStream<Ok = Game, Error = ScrapeError>, ScrapeError> {
         //let url = format!("{}{}", base_url, url);
         let url = reqwest::Url::parse(&base_url.into())?.join(&url.into())?;
 
@@ -284,12 +403,13 @@ impl LeetxScraper {
                 Selector::parse("#description p.align-center strong").unwrap();
         }
 
-        let name = document
+        let name: String = document
             .select(&NAME_SELECTOR)
             .next()
             .and_then(|e| e.text().next())
             .map(|n| n.strip_suffix(" ").unwrap_or(n))
-            .ok_or(ScrapeError::game("name", &url))?;
+            .ok_or(ScrapeError::game("name", &url))?
+            .into();
 
         lazy_static! {
             static ref SUBTITLE_SELECTOR: Selector =
@@ -303,39 +423,31 @@ impl LeetxScraper {
             .and_then(|e| e.text().next())
             .ok_or(ScrapeError::game("subtitle", &url))?;
 
-        let version = if let Some(v) = subtitle.split(" ").next() {
-            if v.contains("[") && v.contains("]") {
-                None
-            } else {
-                Some(v)
-            }
-        } else {
-            None
-        };
-
-        let tags = Self::parse_tags(&subtitle);
+        let (version, tags) = Self::parse_subtitle(subtitle)?;
 
         lazy_static! {
             static ref HASH_SELECTOR: Selector = Selector::parse(".infohash-box span").unwrap();
         }
 
-        let hash = document
+        let hash: String = document
             .select(&HASH_SELECTOR)
             .next()
             .and_then(|e| e.text().next())
-            .ok_or(ScrapeError::game("hash", &url))?;
+            .ok_or(ScrapeError::game("hash", &url))?
+            .into();
 
         lazy_static! {
             static ref SIZE_SELECTOR: Selector =
                 Selector::parse(".box-info .list li span").unwrap();
         }
 
-        let size = document
+        let size: String = document
             .select(&SIZE_SELECTOR)
             .skip(3)
             .next()
             .and_then(|span| span.text().next())
-            .ok_or(ScrapeError::game("size", &url))?;
+            .ok_or(ScrapeError::game("size", &url))?
+            .into();
 
         lazy_static! {
             static ref DESCRIPTION_SELECTOR: Selector = Selector::parse("#description p").unwrap();
@@ -360,6 +472,12 @@ impl LeetxScraper {
         let mut genres: BTreeSet<String> = BTreeSet::new();
         let mut languages: BTreeSet<String> = BTreeSet::new();
 
+        let mut collection_state = false;
+        let mut collection_games = None;
+
+        let is_collection = url.as_str().to_lowercase().contains("collection")
+            || url.as_str().to_lowercase().contains("duology");
+
         for text in info_box.text() {
             if description_state {
                 description.push_str(&text.strip_prefix(" ").unwrap_or(&text));
@@ -369,20 +487,76 @@ impl LeetxScraper {
                 languages = Self::parse_items(text)?;
             } else if text.contains("Description") {
                 description_state = true;
+            } else if text.contains("Includes") && is_collection {
+                collection_state = true;
+                collection_games = Some(Vec::new());
+            } else if text.contains("System requirements") {
+                // Just ignore this
+            } else if collection_state {
+                if text == "" || text == " " {
+                    collection_state = false;
+                } else if let Some(collection_games) = &mut collection_games {
+                    if let Some(game) = Self::parse_collection_game(text).transpose() {
+                        collection_games.push(game);
+                    }
+                }
             }
         }
 
-        Ok(Game {
-            id,
-            name: name.into(),
-            hash: hash.into(),
-            version: version.map(|v| v.into()),
-            size: size.into(),
-            tags,
-            description,
-            genres,
-            languages,
-        })
+        lazy_static! {
+            static ref FILES_SELECTOR: Selector = Selector::parse(".tab-content #files").unwrap();
+        }
+
+        let files_el = document
+            .select(&FILES_SELECTOR)
+            .next()
+            .ok_or(ScrapeError::game("files", &url))?;
+
+        let (file, size) = Self::find_file(files_el, &name).unwrap_or((String::new(), size));
+
+        Ok(stream::iter(
+            if let Some(collection_games) = collection_games {
+                // It's a collection
+                collection_games
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, res)| {
+                        res.map(|(name, version, tags)| {
+                            let (file, size) = Self::find_file(files_el, &name)
+                                .unwrap_or((String::new(), size.clone()));
+                            Game {
+                                id,
+                                name,
+                                hash: hash.clone(),
+                                file,
+                                version,
+                                size: size.clone(),
+                                tags,
+                                banner_index: Some(i),
+                                description: description.clone(),
+                                genres: genres.clone(),
+                                languages: languages.clone(),
+                            }
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                // It's a single game
+                vec![Ok(Game {
+                    id,
+                    name,
+                    hash,
+                    file,
+                    version,
+                    size,
+                    tags,
+                    banner_index: None,
+                    description,
+                    genres,
+                    languages,
+                })]
+            },
+        ))
     }
 
     async fn get_num_pages(&self) -> Result<usize, ScrapeError> {
@@ -463,7 +637,7 @@ mod tests {
         .await
         .unwrap();
 
-        println!("{:#?}", game);
+        //println!("{:#?}", game);
     }
 
     #[tokio::test]
@@ -472,7 +646,6 @@ mod tests {
         println!("{}", leetx_scraper.get_num_pages().await.unwrap());
     }
 
-    /*
     #[tokio::test]
     async fn test_get_pages() {
         let leetx_scraper = LeetxScraper::default();
@@ -487,5 +660,5 @@ mod tests {
                 Err(err) => println!("{:#?}", err),
             }
         }
-    }*/
+    }
 }
