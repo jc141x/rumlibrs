@@ -20,6 +20,8 @@ pub struct Config {
     /// Torrent client configuration
     #[cfg(feature = "download")]
     pub torrent: TorrentConfig,
+    /// Category for torrents
+    pub torrent_category: String,
 }
 
 impl Default for Config {
@@ -31,6 +33,7 @@ impl Default for Config {
             script_blacklist: vec!["winetricks".into(), "chad.sh".into()],
             #[cfg(feature = "download")]
             torrent: TorrentConfig::default(),
+            torrent_category: "chad".into(),
         }
     }
 }
