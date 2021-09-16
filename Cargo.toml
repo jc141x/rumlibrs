@@ -1,6 +1,6 @@
 [package]
 name = "chad_rs"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -28,8 +28,7 @@ lazy_static = "1.4"
 url = "2"
 magick_rust = { version = "0.15", optional = true }
 steamgriddb_api = { version = "0.1", optional = true }
-fuzzy-matcher = { version = "0.3" }
-fuzzywuzzy = "*"
+fuzzywuzzy = { version = "*", optional = true }
 
 [features]
 default = ["library"]
@@ -39,5 +38,5 @@ admin = ["database", "scraping", "banner"]
 library = []
 database = []
 download = []
-scraping = ["scraper", "regex"]
+scraping = ["scraper", "regex", "fuzzywuzzy"]
 banner = ["magick_rust", "steamgriddb_api"]
