@@ -97,6 +97,7 @@ impl Config {
         self.data_path = other.data_path;
         self.library_paths = other.library_paths;
         self.terminal = other.terminal;
+        self.torrent_category = other.torrent_category;
     }
 
     #[cfg(feature = "download")]
