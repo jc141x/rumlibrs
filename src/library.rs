@@ -146,6 +146,7 @@ impl Game {
     /// Uses the given `DatabaseFetcher` to find a matching banner for the game
     #[cfg(feature = "database")]
     pub async fn get_banner(&mut self, fetcher: &DatabaseFetcher) -> Result<(), ChadError> {
+        /*
         if let Ok(banner_path) = fetcher.find_banner(&self.name).await {
             let target = format!(
                 "https://gitlab.com/chad-productions/chad_launcher_banners/-/raw/master/{}",
@@ -159,7 +160,7 @@ impl Game {
             )?;
             self.banner_path = Some(self.data_path.join("banner.png"));
             self.banner = self.banner_path.as_ref().and_then(|p| load_banner(&p));
-        }
+        }*/
 
         Ok(())
     }

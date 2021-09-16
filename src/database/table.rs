@@ -10,13 +10,14 @@ pub trait Table {
 }
 
 pub trait Item: Table {
-    fn new(hash: impl Into<String>, item: impl Into<String>) -> Self;
+    fn new(key: &GameKey<'_>, item: impl Into<String>) -> Self;
     fn field_name() -> &'static str;
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Language {
     pub hash: String,
+    pub file: String,
     pub language: String,
 }
 
@@ -27,9 +28,10 @@ impl Table for Language {
 }
 
 impl Item for Language {
-    fn new(hash: impl Into<String>, item: impl Into<String>) -> Self {
+    fn new(key: &GameKey<'_>, item: impl Into<String>) -> Self {
         Self {
-            hash: hash.into(),
+            hash: key.hash.into(),
+            file: key.file.into(),
             language: item.into(),
         }
     }
@@ -48,6 +50,7 @@ impl Into<String> for Language {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Genre {
     pub hash: String,
+    pub file: String,
     pub genre: String,
 }
 
@@ -58,9 +61,10 @@ impl Table for Genre {
 }
 
 impl Item for Genre {
-    fn new(hash: impl Into<String>, item: impl Into<String>) -> Self {
+    fn new(key: &GameKey<'_>, item: impl Into<String>) -> Self {
         Self {
-            hash: hash.into(),
+            hash: key.hash.into(),
+            file: key.file.into(),
             genre: item.into(),
         }
     }
@@ -79,6 +83,7 @@ impl Into<String> for Genre {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Tag {
     pub hash: String,
+    pub file: String,
     pub tag: String,
 }
 
@@ -89,9 +94,10 @@ impl Table for Tag {
 }
 
 impl Item for Tag {
-    fn new(hash: impl Into<String>, item: impl Into<String>) -> Self {
+    fn new(key: &GameKey<'_>, item: impl Into<String>) -> Self {
         Self {
-            hash: hash.into(),
+            hash: key.hash.into(),
+            file: key.file.into(),
             tag: item.into(),
         }
     }
@@ -107,6 +113,12 @@ impl Into<String> for Tag {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GameKey<'a> {
+    pub hash: &'a str,
+    pub file: &'a str,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Game {
     /// Infohash of the torrent, PK
@@ -119,13 +131,22 @@ pub struct Game {
     pub version: Option<String>,
     /// Description of the game
     pub description: String,
-    /// Relative path to the banner. Banners can be downloaded from here: `https://gitlab.com/chad-productions/chad_launcher_banners/-/raw/master/<banner_rel_path>`
-    pub banner_rel_path: Option<String>,
+    /// Optional index for the banner
+    pub banner_index: Option<usize>,
     /// Date on which the game was added to the database (not serialized!)
     #[serde(skip_serializing)]
     pub data_added: Option<String>,
     /// Id from 1337x, used for sorting
     pub leetx_id: usize,
+}
+
+impl Game {
+    pub fn key<'a>(&'a self) -> GameKey<'a> {
+        GameKey {
+            hash: &self.hash,
+            file: &self.file,
+        }
+    }
 }
 
 impl Table for Game {

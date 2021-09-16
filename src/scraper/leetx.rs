@@ -62,6 +62,8 @@ pub struct Game {
     pub id: usize,
     /// Size
     pub size: String,
+    /// Banner index
+    pub banner_index: Option<usize>,
     /// List of genres
     pub genres: BTreeSet<String>,
     /// List of tags
@@ -79,7 +81,7 @@ impl Into<database::Game> for Game {
                 name: self.name,
                 version: self.version,
                 description: self.description,
-                banner_rel_path: None,
+                banner_index: self.banner_index,
                 data_added: None,
                 leetx_id: self.id,
             },
@@ -511,12 +513,13 @@ impl LeetxScraper {
 
         let (file, size) = Self::find_file(files_el, &name).unwrap_or((String::new(), size));
 
-        if let Some(collection_games) = collection_games {
-            // It's a collection
-            Ok(stream::iter(
+        Ok(stream::iter(
+            if let Some(collection_games) = collection_games {
+                // It's a collection
                 collection_games
                     .into_iter()
-                    .map(|res: Result<_, _>| {
+                    .enumerate()
+                    .map(|(i, res)| {
                         res.map(|(name, version, tags)| {
                             let (file, size) = Self::find_file(files_el, &name)
                                 .unwrap_or((String::new(), size.clone()));
@@ -528,29 +531,31 @@ impl LeetxScraper {
                                 version,
                                 size: size.clone(),
                                 tags,
+                                banner_index: Some(i),
                                 description: description.clone(),
                                 genres: genres.clone(),
                                 languages: languages.clone(),
                             }
                         })
                     })
-                    .collect::<Vec<_>>(),
-            ))
-        } else {
-            // It's a single game
-            Ok(stream::iter(vec![Ok(Game {
-                id,
-                name,
-                hash,
-                file,
-                version,
-                size,
-                tags,
-                description,
-                genres,
-                languages,
-            })]))
-        }
+                    .collect::<Vec<_>>()
+            } else {
+                // It's a single game
+                vec![Ok(Game {
+                    id,
+                    name,
+                    hash,
+                    file,
+                    version,
+                    size,
+                    tags,
+                    banner_index: None,
+                    description,
+                    genres,
+                    languages,
+                })]
+            },
+        ))
     }
 
     async fn get_num_pages(&self) -> Result<usize, ScrapeError> {
