@@ -310,7 +310,7 @@ impl DatabaseFetcher {
     /// Add items ([Item](table::Item)) for the given game to the table
     pub async fn add_items<I>(&self, key: &GameKey<'_>, items: &[String]) -> Result<(), ChadError>
     where
-        I: table::Item + Serialize + std::fmt::Debug,
+        I: table::Item + Serialize,
     {
         let items = items
             .iter()
