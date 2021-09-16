@@ -3,8 +3,6 @@ use std::collections::BTreeSet;
 #[cfg(feature = "database")]
 use crate::database;
 use futures::{prelude::*, StreamExt};
-use fuzzy_matcher::skim::SkimMatcherV2;
-use fuzzy_matcher::FuzzyMatcher;
 use lazy_static::lazy_static;
 use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
@@ -342,9 +340,9 @@ impl LeetxScraper {
             return Ok(None);
         }
 
-        if line.contains("-") {
+        if line.contains(" - ") {
             // Variant A: e.g. Mount & Blade - 1.011 [MULTi6] [GOG] [GNU/Linux Wine] [johncena141]
-            let mut split = line.split("-");
+            let mut split = line.split(" - ");
             let name = split
                 .next()
                 .ok_or(ScrapeError::Other("collection game name".into()))?;
