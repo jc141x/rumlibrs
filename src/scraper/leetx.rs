@@ -475,6 +475,9 @@ impl LeetxScraper {
         let mut collection_state = false;
         let mut collection_games = None;
 
+        let is_collection = url.as_str().to_lowercase().contains("collection")
+            || url.as_str().to_lowercase().contains("duology");
+
         for text in info_box.text() {
             if description_state {
                 description.push_str(&text.strip_prefix(" ").unwrap_or(&text));
@@ -484,7 +487,7 @@ impl LeetxScraper {
                 languages = Self::parse_items(text)?;
             } else if text.contains("Description") {
                 description_state = true;
-            } else if text.contains("Includes") {
+            } else if text.contains("Includes") && is_collection {
                 collection_state = true;
                 collection_games = Some(Vec::new());
             } else if text.contains("System requirements") {
