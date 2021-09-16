@@ -20,6 +20,8 @@ pub struct Config {
     /// Torrent client configuration
     #[cfg(feature = "download")]
     pub torrent: TorrentConfig,
+    /// Category for torrents
+    pub torrent_category: String,
 }
 
 impl Default for Config {
@@ -31,6 +33,7 @@ impl Default for Config {
             script_blacklist: vec!["winetricks".into(), "chad.sh".into()],
             #[cfg(feature = "download")]
             torrent: TorrentConfig::default(),
+            torrent_category: "chad".into(),
         }
     }
 }
@@ -94,6 +97,7 @@ impl Config {
         self.data_path = other.data_path;
         self.library_paths = other.library_paths;
         self.terminal = other.terminal;
+        self.torrent_category = other.torrent_category;
     }
 
     #[cfg(feature = "download")]
