@@ -2,6 +2,11 @@ stages:
   - doc
   - deploy
 
+cache:
+  - key: cargo
+    paths:
+      - target
+
 doc:
   image: "rust:latest"
   stage: doc
