@@ -12,7 +12,7 @@ doc:
   stage: doc
   script:
     - rustc --version && cargo --version
-    - cargo doc
+    - cargo doc --all-features
 
 pages:
   stage: deploy
