@@ -1,9 +1,5 @@
 use crate::{config::Config, util::ChadError};
 
-#[cfg(feature = "database")]
-use crate::database::DatabaseFetcher;
-
-use futures::future::join_all;
 use serde::Serialize;
 use std::{
     io::Read,
@@ -117,7 +113,7 @@ impl Game {
         let banner_path = if data_path.join("banner.png").exists() {
             Some(data_path.join("banner.png"))
         } else {
-            None // TODO Fetch banner
+            None
         };
 
         let banner = banner_path.as_ref().and_then(|p| load_banner(&p));
@@ -141,28 +137,6 @@ impl Game {
 
     pub fn executable_dir(&self) -> &Path {
         &self.executable_dir
-    }
-
-    /// Uses the given `DatabaseFetcher` to find a matching banner for the game
-    #[cfg(feature = "database")]
-    pub async fn get_banner(&mut self, fetcher: &DatabaseFetcher) -> Result<(), ChadError> {
-        /*
-        if let Ok(banner_path) = fetcher.find_banner(&self.name).await {
-            let target = format!(
-                "https://gitlab.com/chad-productions/chad_launcher_banners/-/raw/master/{}",
-                banner_path
-            );
-            let response = reqwest::get(target).await?;
-            let content = response.text().await?;
-            std::io::copy(
-                &mut content.as_bytes(),
-                &mut std::fs::File::create(self.data_path.join("banner.png"))?,
-            )?;
-            self.banner_path = Some(self.data_path.join("banner.png"));
-            self.banner = self.banner_path.as_ref().and_then(|p| load_banner(&p));
-        }*/
-
-        Ok(())
     }
 
     /// Launches the given script. Returns the receiving end of the stdout from the child process.
@@ -243,18 +217,6 @@ impl LibraryFetcher {
             .map(|(e, i)| Game::new(&config, i, e.path()))
             // Collect them into a vec
             .collect();
-    }
-
-    /// Downloads banners for each game
-    #[cfg(feature = "database")]
-    pub async fn download_banners(&mut self, fetcher: &DatabaseFetcher) {
-        join_all(
-            self.games
-                .iter_mut()
-                .filter(|g| g.banner == None)
-                .map(|g| g.get_banner(&fetcher)),
-        )
-        .await;
     }
 
     pub fn iter_games<'a>(&'a self) -> impl Iterator<Item = &'a Game> {

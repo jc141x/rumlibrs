@@ -1,6 +1,3 @@
-#[cfg(feature = "download")]
-use crate::download::{TorrentClientConfig, TorrentConfig};
-
 use crate::util::ChadError;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -17,11 +14,6 @@ pub struct Config {
     pub terminal: String,
     /// List of scripts to ignore when scanning the library
     pub script_blacklist: Vec<String>,
-    /// Torrent client configuration
-    #[cfg(feature = "download")]
-    pub torrent: TorrentConfig,
-    /// Category for torrents
-    pub torrent_category: String,
 }
 
 impl Default for Config {
@@ -31,9 +23,6 @@ impl Default for Config {
             library_paths: vec![],
             terminal: "alacritty".into(),
             script_blacklist: vec!["winetricks".into(), "chad.sh".into()],
-            #[cfg(feature = "download")]
-            torrent: TorrentConfig::default(),
-            torrent_category: "chad".into(),
         }
     }
 }
@@ -97,20 +86,6 @@ impl Config {
         self.data_path = other.data_path;
         self.library_paths = other.library_paths;
         self.terminal = other.terminal;
-        self.torrent_category = other.torrent_category;
     }
 
-    #[cfg(feature = "download")]
-    pub fn insert_download_client(
-        &mut self,
-        name: impl Into<String>,
-        client_config: TorrentClientConfig,
-    ) {
-        self.torrent.clients.insert(name.into(), client_config);
-    }
-
-    #[cfg(feature = "download")]
-    pub fn remove_download_client(&mut self, name: &str) {
-        self.torrent.clients.remove(name);
-    }
 }
