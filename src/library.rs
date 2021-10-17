@@ -217,8 +217,6 @@ impl LibraryFetcher {
             .map(|(e, i)| Game::new(&config, i, e.path()))
             // Collect them into a vec
             .collect();
-        // Sort games by name
-        self.games.sort_by(|a, b| a.name.cmp(&b.name));
     }
 
     pub fn iter_games<'a>(&'a self) -> impl Iterator<Item = &'a Game> {
