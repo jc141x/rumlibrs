@@ -235,6 +235,6 @@ impl LibraryFetcher {
 
     /// Get a game from the given id
     pub fn get_game<'a>(&'a self, id: usize) -> Option<&'a Game> {
-        self.games.get(id)
+        self.games.get(self.games.iter().position(|g| g.id == id).unwrap_or(0))
     }
 }
