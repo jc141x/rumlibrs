@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum ChadError {
+pub enum RumError {
     #[error("Json (de)serialization error: {0}")]
     JsonError(#[from] serde_json::Error),
 
@@ -15,13 +15,13 @@ pub enum ChadError {
     Other(#[from] anyhow::Error),
 }
 
-impl ChadError {
+impl RumError {
     pub fn message<T: Into<String>>(message: T) -> Self {
         Self::Message(message.into())
     }
 }
 
-impl From<&str> for ChadError {
+impl From<&str> for RumError {
     fn from(message: &str) -> Self {
         Self::message(message)
     }

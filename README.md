@@ -1,3 +1,3 @@
-# chad-rs
+# rumlibrs
 
-Library to manage installed games and discover new games used by Chad Launcher.
+Library to manage installed games and discover new games used by Rum.

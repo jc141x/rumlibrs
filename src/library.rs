@@ -1,4 +1,4 @@
-use crate::{config::Config, util::ChadError};
+use crate::{config::Config, util::RumError};
 
 use serde::Serialize;
 use std::{
@@ -82,7 +82,7 @@ fn is_start_script(e: &std::fs::DirEntry, blacklist: &[String]) -> bool {
     is_file && is_executable && is_valid
 }
 
-fn find_scripts(executable_dir: &Path, blacklist: &[String]) -> Result<Vec<Script>, ChadError> {
+fn find_scripts(executable_dir: &Path, blacklist: &[String]) -> Result<Vec<Script>, RumError> {
     Ok(executable_dir
         // Try to read the directory
         .read_dir()?
@@ -119,7 +119,7 @@ impl Game {
         let banner = banner_path.as_ref().and_then(|p| load_banner(&p));
 
         let config_file = data_path.join("game.yaml");
-        let log_file = executable_dir.join("chad.log");
+        let log_file = executable_dir.join("rum.log");
         let scripts = find_scripts(&executable_dir, &config.script_blacklist).unwrap_or(Vec::new());
 
         Self {
@@ -140,7 +140,7 @@ impl Game {
     }
 
     /// Launches the given script. Returns the receiving end of the stdout from the child process.
-    pub fn launch(&self, script: &str) -> Result<Box<dyn Read>, ChadError> {
+    pub fn launch(&self, script: &str) -> Result<Box<dyn Read>, RumError> {
         let child = Command::new(&self.executable_dir.join(&script))
             .current_dir(&self.executable_dir)
             .stdout(Stdio::piped())
@@ -160,7 +160,7 @@ impl LibraryFetcher {
     }
 
     /// Load games by scanning library paths. Ignores any game directory that contains a `.ignore` or
-    /// `.chadignore` file. Ignores start scripts in `config.script_blacklist`.
+    /// `.rumignore` file. Ignores start scripts in `config.script_blacklist`.
     pub fn load_games(&mut self, config: &Config) {
         self.games = config
             // Iterate over all library paths
@@ -188,7 +188,7 @@ impl LibraryFetcher {
                                         d.filter_map(|f| f.ok()).all(|f| {
                                             f.path()
                                                 .file_name()
-                                                .map(|n| n != ".ignore" && n != ".chadignore")
+                                                .map(|n| n != ".ignore" && n != ".rumignore")
                                                 .unwrap_or(true)
                                         })
                                     })

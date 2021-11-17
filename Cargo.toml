@@ -1,5 +1,5 @@
 [package]
-name = "chad_rs"
+name = "rumlibrs"
 version = "0.4.4"
 edition = "2018"
 

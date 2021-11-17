@@ -1,8 +1,8 @@
-use crate::util::ChadError;
+use crate::util::RumError;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Configuration file of Chad Launcher
+/// Configuration file of Rum
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -19,21 +19,21 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            data_path: dirs::data_dir().unwrap().join("chad_launcher"),
+            data_path: dirs::data_dir().unwrap().join("rum"),
             library_paths: vec![],
             terminal: "alacritty".into(),
-            script_blacklist: vec!["winetricks".into(), "chad.sh".into()],
+            script_blacklist: vec!["winetricks".into(), "rum.sh".into()],
         }
     }
 }
 
 impl Config {
     /// Creates a new Config struct by trying to load a configuuration file located at:
-    /// `$XDG_CONFIG_HOME/chad_launcher/config.json`
+    /// `$XDG_CONFIG_HOME/rum/config.json`
     ///
     /// The location and file type of this file is subject to change in the near future.
     pub fn new() -> Self {
-        let config_dir = dirs::config_dir().unwrap().join("chad_launcher");
+        let config_dir = dirs::config_dir().unwrap().join("rum");
         let _ = std::fs::create_dir_all(&config_dir);
         let config_file = config_dir.join("config.json");
         let config_data = std::fs::read_to_string(&config_file);
@@ -48,8 +48,8 @@ impl Config {
     }
 
     /// Save the current configuration to the configuration file
-    pub fn save(&self) -> Result<(), ChadError> {
-        let config_dir = dirs::config_dir().unwrap().join("chad_launcher");
+    pub fn save(&self) -> Result<(), RumError> {
+        let config_dir = dirs::config_dir().unwrap().join("rum");
         let _ = std::fs::create_dir_all(&config_dir);
         std::fs::write(
             &config_dir.join("config.json"),
