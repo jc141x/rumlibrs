@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 
 /// Configuration file of Rum
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
 pub struct Config {
     /// Path to the directory where game metadata and banners are stored
     pub data_path: PathBuf,
@@ -16,24 +15,12 @@ pub struct Config {
     pub script_blacklist: Vec<String>,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            data_path: dirs::data_dir().unwrap().join("rum"),
-            library_paths: vec![],
-            terminal: "alacritty".into(),
-            script_blacklist: vec!["winetricks".into(), "rum.sh".into()],
-        }
-    }
-}
-
 impl Config {
-    /// Creates a new Config struct by trying to load a configuuration file located at:
-    /// `$XDG_CONFIG_HOME/rum/config.json`
+    /// Creates a new Config struct by trying to load a configuration file located at:
+    /// `$XDG_CONFIG_HOME/<APP NAME>/config.json`
     ///
-    /// The location and file type of this file is subject to change in the near future.
-    pub fn new() -> Self {
-        let config_dir = dirs::config_dir().unwrap().join("rum");
+    pub fn new(app_name: String) -> Self {
+        let config_dir = dirs::config_dir().unwrap().join(&app_name);
         let _ = std::fs::create_dir_all(&config_dir);
         let config_file = config_dir.join("config.json");
         let config_data = std::fs::read_to_string(&config_file);
@@ -43,7 +30,12 @@ impl Config {
         }) {
             config
         } else {
-            Self::default()
+            Config {
+                data_path: dirs::data_dir().unwrap().join(&app_name),
+                library_paths: vec![],
+                terminal: "xterm".into(),
+                script_blacklist: vec!["winetricks".into(), "rum.sh".into()],
+            }
         }
     }
 
