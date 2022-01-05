@@ -1,13 +1,16 @@
 use crate::{config::Config, util::RumError};
 
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
+use serde_json;
 use std::{
-    io::Read,
+    io::{Read, BufReader},
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    fs::File
 };
 use titlecase::titlecase;
+use std::collections::HashMap;
 
 #[derive(Serialize, Clone, Debug)]
 pub struct Game {
@@ -100,6 +103,13 @@ fn find_scripts(executable_dir: &Path, blacklist: &[String]) -> Result<Vec<Scrip
         .collect())
 }
 
+#[derive(Deserialize, Debug, Default)]
+struct Gameconfig {
+    wrapper: Option<String>,
+    env: Option<Vec<String>>,
+    args: Option<String>,
+}
+
 impl Game {
     /// Creates a new `Game` from the given configuration with the given id and path to the
     /// directory that contains the executables of this game.
@@ -118,7 +128,7 @@ impl Game {
 
         let banner = banner_path.as_ref().and_then(|p| load_banner(&p));
 
-        let config_file = data_path.join("game.yaml");
+        let config_file = data_path.join("game.json");
         let log_file = executable_dir.join("rum.log");
         let scripts = find_scripts(&executable_dir, &config.script_blacklist).unwrap_or(Vec::new());
 
@@ -134,16 +144,42 @@ impl Game {
             config_file,
         }
     }
-
+    pub fn config_file(&self) -> &Path {
+        &self.config_file
+    }
     pub fn executable_dir(&self) -> &Path {
         &self.executable_dir
     }
 
     /// Launches the given script. Returns the receiving end of the stdout from the child process.
-    pub fn launch(&self, script: &str) -> Result<Box<dyn Read>, RumError> {
-        let child = Command::new(&self.executable_dir.join(&script))
+    pub fn launch(&self, mut script: String) -> Result<Box<dyn Read>, RumError> {
+        script = format!("./{}", script);
+        let file = File::open(&self.config_file());
+        let mut env: HashMap<String, String> = HashMap::new();
+        let mut args: Vec<String> = Vec::new();
+        if file.is_ok() {
+            let reader = BufReader::new(file.unwrap());
+            let conf: Gameconfig = serde_json::from_reader(reader).unwrap_or_default();
+            if let Some(env_list) = conf.env {
+                for env_str in env_list {
+                    let (key, value) = env_str.split_once('=').unwrap();
+                    env.insert(key.to_string(), value.to_string());
+                }
+            }
+            if let Some(arg_str) = conf.args {
+                args = arg_str.split_whitespace().map(|s| s.to_string()).collect();
+            }
+            if let Some(wrapper) = conf.wrapper {
+                args.insert(0, script.to_string());
+                script = wrapper.to_string();
+            }
+        }
+
+        let child = Command::new(&script)
             .current_dir(&self.executable_dir)
+            .args(args)
             .stdout(Stdio::piped())
+            .envs(env)
             .spawn()?;
         Ok(Box::new(child.stdout.unwrap()))
     }
