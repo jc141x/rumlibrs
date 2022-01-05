@@ -1,16 +1,16 @@
 use crate::{config::Config, util::RumError};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_json;
+use std::collections::HashMap;
 use std::{
-    io::{Read, BufReader},
+    fs::File,
+    io::{BufReader, Read},
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    fs::File
 };
 use titlecase::titlecase;
-use std::collections::HashMap;
 
 #[derive(Serialize, Clone, Debug)]
 pub struct Game {
@@ -271,6 +271,7 @@ impl LibraryFetcher {
 
     /// Get a game from the given id
     pub fn get_game<'a>(&'a self, id: usize) -> Option<&'a Game> {
-        self.games.get(self.games.iter().position(|g| g.id == id).unwrap_or(0))
+        self.games
+            .get(self.games.iter().position(|g| g.id == id).unwrap_or(0))
     }
 }

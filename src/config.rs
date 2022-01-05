@@ -79,5 +79,4 @@ impl Config {
         self.library_paths = other.library_paths;
         self.terminal = other.terminal;
     }
-
 }
