@@ -103,7 +103,7 @@ fn find_scripts(executable_dir: &Path, blacklist: &[String]) -> Result<Vec<Scrip
         .collect())
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Default)]
 struct Gameconfig {
     wrapper: Option<String>,
     env: Option<Vec<String>>,
@@ -182,6 +182,18 @@ impl Game {
             .envs(env)
             .spawn()?;
         Ok(Box::new(child.stdout.unwrap()))
+    }
+
+    pub fn save_config(
+        &self,
+        wrapper: Option<String>,
+        env: Option<Vec<String>>,
+        args: Option<String>,
+    ) -> Result<(), RumError> {
+        let config = Gameconfig { wrapper, env, args };
+        let mut file = File::create(&self.config_file())?;
+        serde_json::to_writer_pretty(&mut file, &config)?;
+        Ok(())
     }
 }
 
