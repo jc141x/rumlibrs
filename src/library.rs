@@ -35,9 +35,17 @@ pub struct Game {
 }
 
 #[derive(Serialize, Clone, Debug)]
+pub enum Platform {
+    Wine,
+    Native,
+    Unknown,
+}
+
+#[derive(Serialize, Clone, Debug)]
 pub struct Script {
     pub name: String,
     pub script: String,
+    pub platform: Platform
 }
 
 fn load_banner(banner_path: &Path) -> Option<String> {
@@ -55,13 +63,26 @@ fn prettify_slug(slug: &str) -> String {
     name
 }
 
-fn script_name(script_file: &str) -> String {
+fn script_name(script_file: &str) -> (String, Platform) {
+    if script_file.starts_with("wstart") || script_file.starts_with("nstart") {
+        let platform = if script_file.starts_with("wstart") {
+            Platform::Wine
+        } else {
+            Platform::Native
+        };
+        let mut res = script_file.strip_prefix(|c| c == 'w' || c == 'n' ).unwrap_or(script_file);
+        if res == "start.sh" {
+            return (String::from("Start"), platform);
+        }
+        res = res.strip_suffix("sh").unwrap_or(res);
+        return (prettify_slug(res), platform);
+    }
     if script_file == "start" || script_file == "start.sh" {
-        String::from("Start")
+        return (String::from("Start"), Platform::Unknown);
     } else {
         let mut res = script_file.strip_prefix("start").unwrap_or(script_file);
         res = res.strip_suffix("sh").unwrap_or(res);
-        prettify_slug(res)
+        return (prettify_slug(res), Platform::Unknown);
     }
 }
 
@@ -96,7 +117,8 @@ fn find_scripts(executable_dir: &Path, blacklist: &[String]) -> Result<Vec<Scrip
         // Map DirEntry to String
         .filter_map(|d| d.file_name().to_str().map(|s| s.to_string()))
         .map(|script| Script {
-            name: script_name(&script),
+            name: script_name(&script).0,
+            platform: script_name(&script).1,
             script,
         })
         // Collect into a Vec
